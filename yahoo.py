@@ -58,6 +58,15 @@ class YahooGroupsAPI:
             raise HTTPError(response=r)
         return r.json()['ygData']
 
+def get_best_photoinfo(photoInfoArr):
+    rs = {'tn': 0, 'sn': 1, 'hr': 2, 'or': 3}
+    best = photoInfoArr[0]
+    for info in photoInfoArr:
+        if rs[info['photoType']] >= rs[best['photoType']]:
+            best = info
+    return best
+
+
 def archive_email(yga, reattach=True, save=True):
     msg_json = yga.messages()
     count = msg_json['totalRecords']
@@ -81,7 +90,11 @@ def archive_email(yga, reattach=True, save=True):
             else:
                 for attach in message['attachments']:
                     print "** Fetching attachment '%s'" % (attach['filename'],)
-                    atts[attach['filename']] = yga.get_file(attach['link'])
+                    if 'link' in attach:
+                        atts[attach['filename']] = yga.get_file(attach['link'])
+                    elif 'photoInfo' in attach:
+                        photoinfo = get_best_photoinfo(attach['photoInfo'])
+                        atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
 
                     if save:
                         fname = "%s-%s" % (id, basename(attach['filename']))
@@ -144,11 +157,10 @@ def archive_photos(yga):
                 pname = unescape_html(photo['photoName'])
                 print "** Fetching photo '%s' (%d/%d)" % (pname, p, photos['total'])
 
-                for info in photo['photoInfo']:
-                    if info['photoType'] == 'hr':
-                        fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
-                        with open(fname, 'wb') as f:
-                            yga.download_file(info['displayURL'], f)
+                photoinfo = get_best_photoinfo(photo['photoInfo'])
+                fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
+                with open(fname, 'wb') as f:
+                    yga.download_file(photoinfo['displayURL'], f)
 
 def archive_db(yga):
     json = yga.database()
