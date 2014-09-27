@@ -76,22 +76,25 @@ def archive_email(yga, reattach=True, save=True):
 
         if (save or reattach) and message['hasAttachments']:
             atts = {}
-            for attach in message['attachments']:
-                print "** Fetching attachment '%s'" % (attach['filename'],)
-                atts[attach['filename']] = yga.get_file(attach['link'])
+            if not 'attachments' in message:
+                print "** Yahoo says this message has attachments, but I can't find any!"
+            else:
+                for attach in message['attachments']:
+                    print "** Fetching attachment '%s'" % (attach['filename'],)
+                    atts[attach['filename']] = yga.get_file(attach['link'])
 
-                if save:
-                    fname = "%s-%s" % (id, basename(attach['filename']))
-                    with file(fname, 'wb') as f:
-                        f.write(atts[attach['filename']])
+                    if save:
+                        fname = "%s-%s" % (id, basename(attach['filename']))
+                        with file(fname, 'wb') as f:
+                            f.write(atts[attach['filename']])
 
-            if reattach:
-                for part in eml.walk():
-                    fname = part.get_filename()
-                    if fname and fname in atts:
-                        part.set_payload(atts[fname])
-                        email.encoders.encode_base64(part)
-                        del atts[fname]
+                if reattach:
+                    for part in eml.walk():
+                        fname = part.get_filename()
+                        if fname and fname in atts:
+                            part.set_payload(atts[fname])
+                            email.encoders.encode_base64(part)
+                            del atts[fname]
 
         fname = "%s.eml" % (id,)
         with file(fname, 'w') as f:
