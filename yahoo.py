@@ -119,7 +119,7 @@ def archive_photos(yga):
                 with open(fname, 'wb') as f:
                     yga.download_file(photoinfo['displayURL'], f)
 
-def archive_db(yga):
+def archive_db(yga, group):
     json = yga.database()
     n = 0
     nts = len(json['tables'])
@@ -128,7 +128,7 @@ def archive_db(yga):
         print "* Downloading database table '%s' (%d/%d)" % (table['name'], n, nts)
 
         name = basename(table['name']) + '.csv'
-        uri = "https://groups.yahoo.com/neo/groups/ulscr/database/%s/records/export?format=csv" % (table['tableId'],)
+        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (group, table['tableId'])
         with open(name, 'w') as f:
             yga.download_file(uri, f)
 
@@ -198,4 +198,4 @@ if __name__ == "__main__":
                 archive_photos(yga)
         if args.database:
             with Mkchdir('databases'):
-                archive_db(yga)
+                archive_db(yga, args.group)
