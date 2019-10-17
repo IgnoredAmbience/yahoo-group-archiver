@@ -2,6 +2,7 @@ import requests
 from HTMLParser import HTMLParser
 import json
 import functools
+import time
 
 class YahooGroupsAPI:
     BASE_URI="https://groups.yahoo.com/api"
@@ -50,8 +51,16 @@ class YahooGroupsAPI:
         return r.content
 
     def download_file(self, url, f, **args):
-        r = self.s.get(url, stream=True, **args)
-        r.raise_for_status()
+        retries = 5
+        while True:
+            r = self.s.get(url, stream=True, **args)
+            if r.status_code == 400 and retries > 0:
+                print "[Got 400 error for %s, will sleep and retry %d times]" % (url, retries)
+                retries -= 1
+                time.sleep(5)
+                continue
+            r.raise_for_status()
+            break
         for chunk in r.iter_content(chunk_size=4096):
             f.write(chunk)
 
