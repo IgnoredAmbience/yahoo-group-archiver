@@ -9,17 +9,30 @@ from xml.sax.saxutils import unescape
 import argparse
 import getpass
 import sys
+import requests
 
 def unescape_html(string):
     return unescape(string, {"&quot;": '"', "&apos;": "'", "&#39;": "'"})
 
-def get_best_photoinfo(photoInfoArr):
+def get_best_photoinfo(photoInfoArr, exclude=[]):
     rs = {'tn': 0, 'sn': 1, 'hr': 2, 'or': 3}
+
+    # exclude types we're not interested in
+    for x in exclude:
+        if x in rs:
+            rs[x] = -1
+
     best = photoInfoArr[0]
     for info in photoInfoArr:
+        if info['photoType'] not in rs:
+            print "ERROR photoType '%s' not known" % info['photoType']
+            continue
         if rs[info['photoType']] >= rs[best['photoType']]:
             best = info
-    return best
+    if rs[best['photoType']] == -1:
+        return None
+    else:
+        return best
 
 
 def archive_email(yga, reattach=True, save=True):
@@ -46,10 +59,39 @@ def archive_email(yga, reattach=True, save=True):
                 for attach in message['attachments']:
                     print "** Fetching attachment '%s'" % (attach['filename'],)
                     if 'link' in attach:
-                        atts[attach['filename']] = yga.get_file(attach['link'])
+                        # try and download the attachment
+                        # (sometimes yahoo doesn't keep them)
+                        try:
+                            atts[attach['filename']] = yga.get_file(attach['link'])
+                        except requests.exceptions.HTTPError as err:
+                            print "ERROR: can't download attachment: %s" % err
+                            continue
+
                     elif 'photoInfo' in attach:
-                        photoinfo = get_best_photoinfo(attach['photoInfo'])
-                        atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
+                        # keep retrying until we find the largest image size we can download
+                        # (sometimes yahoo doesn't keep the originals)
+                        exclude = []
+                        ok = False
+                        while not ok:
+                            # find best photoinfo (largest size)
+                            photoinfo = get_best_photoinfo(attach['photoInfo'], exclude)
+
+                            if photoinfo is None:
+                                print("ERROR: can't find a viable copy of this photo")
+                                break
+
+                            # try and download it
+                            try:
+                                atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
+                                ok = True
+                            except requests.exceptions.HTTPError as err:
+                                # yahoo says no. exclude this size and try for another.
+                                print "ERROR downloading '%s' variant: %s" % (photoinfo['photoType'], err)
+                                exclude.append(photoinfo['photoType'])
+
+                        # if we failed, try the next attachment
+                        if not ok:
+                            continue
 
                     if save:
                         fname = "%s-%s" % (id, basename(attach['filename']))
