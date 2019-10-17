@@ -10,6 +10,13 @@ import argparse
 import getpass
 import sys
 import requests
+import time
+
+# number of seconds to wait before trying again
+HOLDOFF=10
+
+# max tries
+TRIES=10
 
 def unescape_html(string):
     return unescape(string, {"&quot;": '"', "&apos;": "'", "&#39;": "'"})
@@ -61,11 +68,13 @@ def archive_email(yga, reattach=True, save=True):
                     if 'link' in attach:
                         # try and download the attachment
                         # (sometimes yahoo doesn't keep them)
-                        try:
-                            atts[attach['filename']] = yga.get_file(attach['link'])
-                        except requests.exceptions.HTTPError as err:
-                            print "ERROR: can't download attachment: %s" % err
-                            continue
+                        for i in range(TRIES):
+                            try:
+                                atts[attach['filename']] = yga.get_file(attach['link'])
+                                break
+                            except requests.exceptions.HTTPError as err:
+                                print "ERROR: can't download attachment, try %d: %s" % (i, err)
+                                time.sleep(HOLDOFF)
 
                     elif 'photoInfo' in attach:
                         # keep retrying until we find the largest image size we can download
@@ -81,13 +90,16 @@ def archive_email(yga, reattach=True, save=True):
                                 break
 
                             # try and download it
-                            try:
-                                atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
-                                ok = True
-                            except requests.exceptions.HTTPError as err:
-                                # yahoo says no. exclude this size and try for another.
-                                print "ERROR downloading '%s' variant: %s" % (photoinfo['photoType'], err)
-                                exclude.append(photoinfo['photoType'])
+                            for i in range(TRIES):
+                                try:
+                                    atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
+                                    ok = True
+                                    break
+                                except requests.exceptions.HTTPError as err:
+                                    # yahoo says no. exclude this size and try for another.
+                                    print "ERROR downloading '%s' variant, try %d: %s" % (photoinfo['photoType'], i, err)
+                                    time.sleep(HOLDOFF)
+                                    #exclude.append(photoinfo['photoType'])
 
                         # if we failed, try the next attachment
                         if not ok:
@@ -159,7 +171,14 @@ def archive_photos(yga):
                 photoinfo = get_best_photoinfo(photo['photoInfo'])
                 fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
                 with open(fname, 'wb') as f:
-                    yga.download_file(photoinfo['displayURL'], f)
+                    for i in range(TRIES):
+                        try:
+                            yga.download_file(photoinfo['displayURL'], f)
+                            break
+                        except requests.exceptions.HTTPError as err:
+                            print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+                            time.sleep(HOLDOFF)
+
 
 def archive_db(yga, group):
     json = yga.database()
