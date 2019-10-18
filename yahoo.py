@@ -11,6 +11,8 @@ import getpass
 import sys
 import requests
 import time
+import datetime
+
 
 # number of seconds to wait before trying again
 HOLDOFF=10
@@ -244,6 +246,37 @@ def archive_links(yga):
         f.write(json.dumps(links['links'], indent=4))
         print "* Written %d links from root folder" % links['numLink']    
 
+def archive_calendar(yga):
+    groupinfo = yga.HackGroupInfo()
+    entityId = groupinfo['entityId']
+
+	# We get the wssid
+    tmpUri = "https://calendar.yahoo.com/ws/v3/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % entityId
+    tmpContent = yga.get_file_nostatus(tmpUri)
+    wssid = json.loads(tmpContent)['calendarError']['wssid']
+
+	# Getting everything since the launch of Yahoo! Groups (January 30, 2001)
+    archiveDate = datetime.datetime(2001,1,30)
+    endDate = datetime.datetime(2025,1,1)
+    while archiveDate < endDate:
+        jsonStart = archiveDate.strftime("%Y%m%d")
+        jsonEnd = (archiveDate + datetime.timedelta(days=1000)).strftime("%Y%m%d")
+        print "* Getting events between %s and %s" % (jsonStart,jsonEnd)
+        calURL = "https://calendar.yahoo.com/ws/v3/users/%s/calendars/events/?format=json&dtstart=%s&dtend=%s&wssid=%s" % \
+                    (entityId, jsonStart, jsonEnd, wssid)
+        filename = jsonStart + "-" + jsonEnd + ".json"
+        with open(filename, 'wb') as f:
+			for i in range(TRIES):
+				try:
+				    yga.download_file(calURL, f)
+				    break
+				except requests.exceptions.HTTPError as err:
+				    print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+				    time.sleep(HOLDOFF)		
+
+        archiveDate += datetime.timedelta(days=1000)
+
+
 class Mkchdir:
     d = ""
     def __init__(self, d):
@@ -280,6 +313,8 @@ if __name__ == "__main__":
             help='Only archive database')
     po.add_argument('-l', '--links', action='store_true',
             help='Only archive links')
+    po.add_argument('-c', '--calendar', action='store_true',
+            help='Only archive events')
 
     pe = p.add_argument_group(title='Email Options')
     pe.add_argument('-r', '--no-reattach', action='store_true',
@@ -302,8 +337,8 @@ if __name__ == "__main__":
             print "Login failed"
             sys.exit(1)
 
-    if not (args.email or args.files or args.photos or args.database or args.links):
-        args.email = args.files = args.photos = args.database = args.links = True
+    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar):
+        args.email = args.files = args.photos = args.database = args.links = args.calendar = True
 
     with Mkchdir(args.group):
         if args.email:
@@ -321,3 +356,6 @@ if __name__ == "__main__":
         if args.links:
             with Mkchdir('links'):
                 archive_links(yga)
+        if args.calendar:
+            with Mkchdir('calendar'):
+                archive_calendar(yga)

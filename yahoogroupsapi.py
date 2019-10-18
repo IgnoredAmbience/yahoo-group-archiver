@@ -9,6 +9,7 @@ class YahooGroupsAPI:
     LOGIN_URI="https://login.yahoo.com/"
 
     API_VERSIONS={
+            'HackGroupInfo': 'v1', #In reality, this will get the root endpoint
             'messages': 'v1',
             'files': 'v2',
             'albums': 'v2', # v3 is available, but changes where photos are located in json
@@ -49,8 +50,12 @@ class YahooGroupsAPI:
 
     def get_file(self, url):
         r = self.s.get(url)
-        r.raise_for_status()
         return r.content
+
+    def get_file_nostatus(self, url):
+        r = self.s.get(url)
+        return r.content
+
 
     def download_file(self, url, f, **args):
         retries = 5
@@ -68,8 +73,13 @@ class YahooGroupsAPI:
 
     def get_json(self, target, *parts, **opts):
         """Get an arbitrary endpoint and parse as json"""
+
         uri_parts = [self.BASE_URI, self.API_VERSIONS[target], 'groups', self.group, target]
         uri_parts = uri_parts + map(str, parts)
+
+        if target == 'HackGroupInfo':
+            uri_parts[4] = ''
+
         uri = "/".join(uri_parts)
 
         r = self.s.get(uri, params=opts, allow_redirects=False, timeout=10)
