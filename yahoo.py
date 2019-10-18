@@ -97,7 +97,7 @@ def archive_email(yga, save=True, html=True):
                         # (sometimes yahoo doesn't keep them)
                         for i in range(TRIES):
                             try:
-                                atts[attach['filename']] = yga.get_file(attach['link'])
+                                atts[attach['filename']] = yga.download_file(attach['link'])
                                 break
                             except requests.exceptions.HTTPError as err:
                                 logger.error("Can't download attachment, try %d: %s", i, err)
@@ -119,7 +119,7 @@ def archive_email(yga, save=True, html=True):
                             # try and download it
                             for i in range(TRIES):
                                 try:
-                                    atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
+                                    atts[attach['filename']] = yga.download_file(photoinfo['displayURL'])
                                     ok = True
                                     break
                                 except requests.exceptions.HTTPError as err:
@@ -154,7 +154,7 @@ def process_single_attachment(yga, attach):
             # (sometimes yahoo doesn't keep them)
             for i in range(TRIES):
                 try:
-                    att = yga.get_file(frec['link'])
+                    att = yga.download_file(frec['link'])
                     break
                 except requests.exceptions.HTTPError as err:
                     logger.error("Can't download attachment, try %d: %s", i, err)
@@ -176,7 +176,7 @@ def process_single_attachment(yga, attach):
                 # try and download it
                 for i in range(TRIES):
                     try:
-                        att = yga.get_file(photoinfo['displayURL'])
+                        att = yga.download_file(photoinfo['displayURL'])
                         ok = True
                         break
                     except requests.exceptions.HTTPError as err:
@@ -367,7 +367,7 @@ def archive_calendar(yga):
 
     # We get the wssid
     tmpUri = "%s/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % (api_root, entityId)
-    tmpContent = yga.get_file_nostatus(tmpUri)  # We expect a 403 here
+    tmpContent = yga.download_file(tmpUri)  # We expect a 403 here
     tmpJson = json.loads(tmpContent)['calendarError']
 
     if 'wssid' not in tmpJson:
@@ -387,7 +387,7 @@ def archive_calendar(yga):
         for i in range(TRIES):
             try:
                 logger.info("Trying to get events between %s and %s", jsonStart, jsonEnd)
-                calContentRaw = yga.get_file(calURL)
+                calContentRaw = yga.download_file(calURL)
                 break
             except requests.exceptions.HTTPError as err:
                 logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)

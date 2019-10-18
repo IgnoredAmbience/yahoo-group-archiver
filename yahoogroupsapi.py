@@ -66,17 +66,7 @@ class YahooGroupsAPI:
             raise AttributeError()
         return functools.partial(self.get_json, name)
 
-    def get_file(self, url):
-        with self.http_context(self.ww):
-            r = self.s.get(url, verify=False)  # Needed to disable SSL verifying
-            return r.content
-
-    def get_file_nostatus(self, url):
-        with self.http_context(self.ww):
-            r = self.s.get(url)
-            return r.content
-
-    def download_file(self, url, f, **args):
+    def download_file(self, url, f=None, **args):
         with self.http_context(self.ww):
             retries = 5
             while True:
@@ -88,6 +78,10 @@ class YahooGroupsAPI:
                     continue
                 r.raise_for_status()
                 break
+
+            if f is None:
+                return r.content
+
             for chunk in r.iter_content(chunk_size=4096):
                 f.write(chunk)
 
