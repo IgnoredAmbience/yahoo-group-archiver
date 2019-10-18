@@ -193,8 +193,16 @@ def archive_db(yga, group):
             json = yga.database()
             break
         except requests.exceptions.HTTPError as err:
+            json = None
+            if e.response.status_code == 403:
+                # 403 error means Permission Denied. Retrying won't help.
+                break
             print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
             time.sleep(HOLDOFF)
+
+    if json is None:
+        print "ERROR: Couldn't download databases"
+        return
 
     n = 0
     nts = len(json['tables'])
