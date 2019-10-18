@@ -194,7 +194,7 @@ def archive_db(yga, group):
             break
         except requests.exceptions.HTTPError as err:
             json = None
-            if e.response.status_code == 403:
+            if err.response.status_code == 403:
                 # 403 error means Permission Denied. Retrying won't help.
                 break
             print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
