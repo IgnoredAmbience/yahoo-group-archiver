@@ -17,12 +17,13 @@ class YahooGroupsAPI:
 
     s = None
 
-    def __init__(self, group, cookie_t, cookie_y):
+    def __init__(self, group, cookie_t, cookie_y, cookie_euconsent):
         self.s = requests.Session()
         self.group = group
         jar = requests.cookies.RequestsCookieJar()
         jar.set('T', cookie_t)
         jar.set('Y', cookie_y)
+        jar.set('EuConsent', cookie_euconsent);
         self.s.cookies = jar
         self.s.headers = {'Referer': self.BASE_URI}
 

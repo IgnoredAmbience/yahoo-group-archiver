@@ -244,6 +244,8 @@ if __name__ == "__main__":
             help='If no password supplied, will be requested on the console')
     p.add_argument('-ct', '--cookie_t', type=str)
     p.add_argument('-cy', '--cookie_y', type=str)
+    p.add_argument('-ce', '--cookie_e', type=str,
+            help='Additionnal EuConsent cookie is required in EU')
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
@@ -265,7 +267,10 @@ if __name__ == "__main__":
 
     args = p.parse_args()
 
-    yga = YahooGroupsAPI(args.group, args.cookie_t, args.cookie_y)
+    if not args.cookie_e:
+        args.cookie_e = ''
+
+    yga = YahooGroupsAPI(args.group, args.cookie_t, args.cookie_y, args.cookie_e)
     if args.username:
         password = args.password or getpass.getpass()
         print "logging in..."
