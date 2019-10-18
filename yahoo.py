@@ -53,7 +53,14 @@ def archive_email(yga, reattach=True, save=True):
         id = message['messageId']
 
         print "* Fetching raw message #%d of %d" % (id,count)
-        raw_json = yga.messages(id, 'raw')
+        for i in range(5):
+            try:
+                raw_json = yga.messages(id, 'raw')
+                break
+            except requests.exceptions.ReadTimeout:
+                print "ERROR: Read timeout, retrying"
+                time.sleep(HOLDOFF)
+
         mime = unescape_html(raw_json['rawEmail']).encode('latin_1', 'ignore')
 
         eml = email.message_from_string(mime)
@@ -181,7 +188,14 @@ def archive_photos(yga):
 
 
 def archive_db(yga, group):
-    json = yga.database()
+    for i in range(TRIES):
+        try:
+            json = yga.database()
+            break
+        except requests.exceptions.HTTPError as err:
+            print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+            time.sleep(HOLDOFF)
+
     n = 0
     nts = len(json['tables'])
     for table in json['tables']:
