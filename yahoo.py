@@ -222,6 +222,28 @@ def archive_db(yga, group):
         with open(name, 'w') as f:
             yga.download_file(uri, f)
 
+
+def archive_links(yga):
+    nb_links = yga.links(count=5)['total'] + 1
+    links = yga.links(count=nb_links)
+    n = 0
+
+    for a in links['dirs']:
+        n += 1
+        name = unescape_html(a['folder']).replace("/", "_")
+        print "* Fetching links folder '%s' (%d/%d)" % (name, n, links['numDir'])
+
+        with Mkchdir(basename(name).replace('.', '')):
+            child_links = yga.links(linkdir=a['folder'])
+
+            with open('links.json', 'w') as f:
+                f.write(json.dumps(child_links['links'], indent=4))
+                print "* Written %d links from folder %s" % (child_links['numLink'],name) 
+
+    with open('links.json', 'w') as f:
+        f.write(json.dumps(links['links'], indent=4))
+        print "* Written %d links from root folder" % links['numLink']    
+
 class Mkchdir:
     d = ""
     def __init__(self, d):
@@ -256,6 +278,8 @@ if __name__ == "__main__":
             help='Only archive photo galleries')
     po.add_argument('-d', '--database', action='store_true',
             help='Only archive database')
+    po.add_argument('-l', '--links', action='store_true',
+            help='Only archive links')
 
     pe = p.add_argument_group(title='Email Options')
     pe.add_argument('-r', '--no-reattach', action='store_true',
@@ -278,8 +302,8 @@ if __name__ == "__main__":
             print "Login failed"
             sys.exit(1)
 
-    if not (args.email or args.files or args.photos or args.database):
-        args.email = args.files = args.photos = args.database = True
+    if not (args.email or args.files or args.photos or args.database or args.links):
+        args.email = args.files = args.photos = args.database = args.links = True
 
     with Mkchdir(args.group):
         if args.email:
@@ -294,3 +318,6 @@ if __name__ == "__main__":
         if args.database:
             with Mkchdir('databases'):
                 archive_db(yga, args.group)
+        if args.links:
+            with Mkchdir('links'):
+                archive_links(yga)
