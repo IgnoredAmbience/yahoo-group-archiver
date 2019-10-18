@@ -157,12 +157,16 @@ def archive_files(yga, subdir=None):
                 archive_files(yga, subdir=pathURI)
 
 def archive_photos(yga):
-    albums = yga.albums()
+    nb_albums = yga.albums(count=5)['total'] + 1
+    albums = yga.albums(count=nb_albums)
     n = 0
+
+    with open('albums.json', 'w') as f:
+        f.write(json.dumps(albums['albums'], indent=4))
 
     for a in albums['albums']:
         n += 1
-        name = unescape_html(a['albumName'])
+        name = unescape_html(a['albumName']).replace("/", "_")
         # Yahoo has an off-by-one error in the album count...
         print "* Fetching album '%s' (%d/%d)" % (name, n, albums['total'] - 1)
 
@@ -170,9 +174,12 @@ def archive_photos(yga):
             photos = yga.albums(a['albumId'])
             p = 0
 
+            with open('photos.json', 'w') as f:
+                f.write(json.dumps(photos['photos'], indent=4))
+
             for photo in photos['photos']:
                 p += 1
-                pname = unescape_html(photo['photoName'])
+                pname = unescape_html(photo['photoName']).replace("/", "_")
                 print "** Fetching photo '%s' (%d/%d)" % (pname, p, photos['total'])
 
                 photoinfo = get_best_photoinfo(photo['photoInfo'])
