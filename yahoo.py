@@ -43,7 +43,7 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
         return best
 
 
-def archive_email(yga, reattach=True, save=True, html=False):
+def archive_email(yga, save=True, html=True):
     try:
         msg_json = yga.messages()
     except requests.exceptions.HTTPError as err:
@@ -74,14 +74,15 @@ def archive_email(yga, reattach=True, save=True, html=False):
 		        except requests.exceptions.ReadTimeout:
 			         print "ERROR: Read timeout, retrying"
 			         time.sleep(HOLDOFF)
+		        except requests.exceptions.HTTPError as err:
+			         print "ERROR: Grab failed"
+			         break
 
-        eml = email.message_from_string(raw_json['rawEmail'])
-
-        if (save or reattach) and message['hasAttachments']:
-            atts = {}
+        if save and message['hasAttachments']:
             if not 'attachments' in message:
                 print "** Yahoo says this message has attachments, but I can't find any!"
             else:
+                atts = {}
                 for attach in message['attachments']:
                     print "** Fetching attachment '%s'" % (attach['filename'],)
                     if 'link' in attach:
@@ -124,21 +125,13 @@ def archive_email(yga, reattach=True, save=True, html=False):
                         if not ok:
                             continue
 
-                    if save:
-                        fname = "%s-%s" % (id, basename(attach['filename']))
-                        with file(fname, 'wb') as f:
-                            f.write(atts[attach['filename']])
+                        if save:
+                            fname = "%s-%s" % (id, basename(attach['filename']))
+                            with file(fname, 'wb') as f:
+                                f.write(atts[attach['filename']])
 
-                if reattach:
-                    for part in eml.walk():
-                        fname = part.get_filename()
-                        if fname and fname in atts:
-                            part.set_payload(atts[fname])
-                            email.encoders.encode_base64(part)
-                            del atts[fname]
-
-        with file("%s.eml" % (id,), 'w') as f:
-            f.write(eml.as_string(unixfrom=False))
+        with file("%s_raw.json" % (id,), 'wb') as f:
+            f.write(json.dumps(raw_json, indent=4))
 
         if html:
 		    with file("%s.html" % (id,), 'w') as f:
@@ -445,12 +438,10 @@ if __name__ == "__main__":
             help='Only archive general info about the group')
 
     pe = p.add_argument_group(title='Email Options')
-    pe.add_argument('-r', '--no-reattach', action='store_true',
-            help="Don't reattach attachment files to email")
     pe.add_argument('-s', '--no-save', action='store_true',
             help="Don't save email attachments as individual files")
-    pe.add_argument('--html', action='store_true',
-            help="Save HTML of message bodies")
+    pe.add_argument('--html', action='store_false',
+            help="Don't save HTML of message bodies")
 
     p.add_argument('group', type=str)
 
@@ -473,7 +464,7 @@ if __name__ == "__main__":
     with Mkchdir(args.group):
         if args.email:
             with Mkchdir('email'):
-                archive_email(yga, reattach=(not args.no_reattach), save=(not args.no_save), html=args.html)
+                archive_email(yga, save=(not args.no_save), html=args.html)
         if args.files:
             with Mkchdir('files'):
                 archive_files(yga)
