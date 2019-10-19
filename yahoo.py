@@ -4,6 +4,7 @@ import json
 import email
 import urllib
 import os
+from HTMLParser import HTMLParser
 from os.path import basename
 import argparse
 import getpass
@@ -18,6 +19,8 @@ HOLDOFF=10
 
 # max tries
 TRIES=10
+
+hp = HTMLParser()
 
 def get_best_photoinfo(photoInfoArr, exclude=[]):
     rs = {'tn': 0, 'sn': 1, 'hr': 2, 'or': 3}
@@ -157,7 +160,7 @@ def archive_files(yga, subdir=None):
         n += 1
         if path['type'] == 0:
             # Regular file
-            name = unescape_html(path['fileName'])
+            name = hp.unescape(path['fileName']).replace("/", "_")
             print "* Fetching file '%s' (%d/%d)" % (name, n, sz)
             with open(basename(name), 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
@@ -179,7 +182,7 @@ def archive_photos(yga):
 
     for a in albums['albums']:
         n += 1
-        name = unescape_html(a['albumName']).replace("/", "_")
+        name = hp.unescape(a['albumName']).replace("/", "_")
         # Yahoo has an off-by-one error in the album count...
         print "* Fetching album '%s' (%d/%d)" % (name, n, albums['total'] - 1)
 
@@ -192,7 +195,7 @@ def archive_photos(yga):
 
             for photo in photos['photos']:
                 p += 1
-                pname = unescape_html(photo['photoName']).replace("/", "_")
+                pname = hp.unescape(photo['photoName']).replace("/", "_")
                 print "** Fetching photo '%s' (%d/%d)" % (pname, p, photos['total'])
 
                 photoinfo = get_best_photoinfo(photo['photoInfo'])
@@ -243,7 +246,7 @@ def archive_links(yga):
 
     for a in links['dirs']:
         n += 1
-        name = unescape_html(a['folder']).replace("/", "_")
+        name = hp.unescape(a['folder']).replace("/", "_")
         print "* Fetching links folder '%s' (%d/%d)" % (name, n, links['numDir'])
 
         with Mkchdir(basename(name).replace('.', '')):
