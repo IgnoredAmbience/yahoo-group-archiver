@@ -415,7 +415,7 @@ if __name__ == "__main__":
     p.add_argument('-ct', '--cookie_t', type=str)
     p.add_argument('-cy', '--cookie_y', type=str)
     p.add_argument('-ce', '--cookie_e', type=str,
-            help='Additionnal EuConsent cookie is required in EU')
+            help='Additional EuConsent cookie is required in EU')
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
@@ -433,7 +433,7 @@ if __name__ == "__main__":
     po.add_argument('-p', '--polls', action='store_true',
             help='Only archive polls')
     po.add_argument('-a', '--about', action='store_true',
-            help='Only archive general infos about the group')
+            help='Only archive general info about the group')
 
     pe = p.add_argument_group(title='Email Options')
     pe.add_argument('-r', '--no-reattach', action='store_true',
