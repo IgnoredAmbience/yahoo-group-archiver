@@ -5,7 +5,6 @@ import email
 import urllib
 import os
 from os.path import basename
-from xml.sax.saxutils import unescape
 import argparse
 import getpass
 import sys
@@ -19,9 +18,6 @@ HOLDOFF=10
 
 # max tries
 TRIES=10
-
-def unescape_html(string):
-    return unescape(string, {"&quot;": '"', "&apos;": "'", "&#39;": "'"})
 
 def get_best_photoinfo(photoInfoArr, exclude=[]):
     rs = {'tn': 0, 'sn': 1, 'hr': 2, 'or': 3}
@@ -68,9 +64,7 @@ def archive_email(yga, reattach=True, save=True):
                 print "ERROR: Read timeout, retrying"
                 time.sleep(HOLDOFF)
 
-        mime = unescape_html(raw_json['rawEmail']).encode('latin_1', 'ignore')
-
-        eml = email.message_from_string(mime)
+        eml = email.message_from_string(raw_json['rawEmail'])
 
         if (save or reattach) and message['hasAttachments']:
             atts = {}
