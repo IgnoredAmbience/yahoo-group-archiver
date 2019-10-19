@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 from yahoogroupsapi import YahooGroupsAPI
 import json
 import email
 import urllib
 import os
+from HTMLParser import HTMLParser
 from os.path import basename
-from xml.sax.saxutils import unescape
 import argparse
 import getpass
 import sys
@@ -20,8 +20,7 @@ HOLDOFF=10
 # max tries
 TRIES=10
 
-def unescape_html(string):
-    return unescape(string, {"&quot;": '"', "&apos;": "'", "&#39;": "'"})
+hp = HTMLParser()
 
 def get_best_photoinfo(photoInfoArr, exclude=[]):
     rs = {'tn': 0, 'sn': 1, 'hr': 2, 'or': 3}
@@ -44,7 +43,7 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
         return best
 
 
-def archive_email(yga, reattach=True, save=True):
+def archive_email(yga, reattach=True, save=True, html=False):
     try:
         msg_json = yga.messages()
     except requests.exceptions.HTTPError as err:
@@ -60,17 +59,23 @@ def archive_email(yga, reattach=True, save=True):
         id = message['messageId']
 
         print "* Fetching raw message #%d of %d" % (id,count)
-        for i in range(5):
+        for i in range(TRIES):
             try:
                 raw_json = yga.messages(id, 'raw')
                 break
             except requests.exceptions.ReadTimeout:
                 print "ERROR: Read timeout, retrying"
                 time.sleep(HOLDOFF)
+        if html:
+		for i in range(TRIES):
+		    try:
+			html_json = yga.messages(id)
+			break
+		    except requests.exceptions.ReadTimeout:
+			print "ERROR: Read timeout, retrying"
+			time.sleep(HOLDOFF)
 
-        mime = unescape_html(raw_json['rawEmail']).encode('latin_1', 'ignore')
-
-        eml = email.message_from_string(mime)
+        eml = email.message_from_string(raw_json['rawEmail'])
 
         if (save or reattach) and message['hasAttachments']:
             atts = {}
@@ -132,9 +137,13 @@ def archive_email(yga, reattach=True, save=True):
                             email.encoders.encode_base64(part)
                             del atts[fname]
 
-        fname = "%s.eml" % (id,)
-        with file(fname, 'w') as f:
+        with file("%s.eml" % (id,), 'w') as f:
             f.write(eml.as_string(unixfrom=False))
+        if html:
+		with file("%s.html" % (id,), 'w') as f:
+		    f.write(html_json['messageBody'].encode('utf-8'))
+
+        break
 
 def archive_files(yga, subdir=None):
     if subdir:
@@ -151,7 +160,7 @@ def archive_files(yga, subdir=None):
         n += 1
         if path['type'] == 0:
             # Regular file
-            name = unescape_html(path['fileName'])
+            name = hp.unescape(path['fileName']).replace("/", "_")
             print "* Fetching file '%s' (%d/%d)" % (name, n, sz)
             with open(basename(name), 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
@@ -173,7 +182,7 @@ def archive_photos(yga):
 
     for a in albums['albums']:
         n += 1
-        name = unescape_html(a['albumName']).replace("/", "_")
+        name = hp.unescape(a['albumName']).replace("/", "_")
         # Yahoo has an off-by-one error in the album count...
         print "* Fetching album '%s' (%d/%d)" % (name, n, albums['total'] - 1)
 
@@ -186,7 +195,7 @@ def archive_photos(yga):
 
             for photo in photos['photos']:
                 p += 1
-                pname = unescape_html(photo['photoName']).replace("/", "_")
+                pname = hp.unescape(photo['photoName']).replace("/", "_")
                 print "** Fetching photo '%s' (%d/%d)" % (pname, p, photos['total'])
 
                 photoinfo = get_best_photoinfo(photo['photoInfo'])
@@ -237,7 +246,7 @@ def archive_links(yga):
 
     for a in links['dirs']:
         n += 1
-        name = unescape_html(a['folder']).replace("/", "_")
+        name = hp.unescape(a['folder']).replace("/", "_")
         print "* Fetching links folder '%s' (%d/%d)" % (name, n, links['numDir'])
 
         with Mkchdir(basename(name).replace('.', '')):
@@ -415,7 +424,7 @@ if __name__ == "__main__":
     p.add_argument('-ct', '--cookie_t', type=str)
     p.add_argument('-cy', '--cookie_y', type=str)
     p.add_argument('-ce', '--cookie_e', type=str,
-            help='Additionnal EuConsent cookie is required in EU')
+            help='Additional EuConsent cookie is required in EU')
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
@@ -433,13 +442,15 @@ if __name__ == "__main__":
     po.add_argument('-p', '--polls', action='store_true',
             help='Only archive polls')
     po.add_argument('-a', '--about', action='store_true',
-            help='Only archive general infos about the group')
+            help='Only archive general info about the group')
 
     pe = p.add_argument_group(title='Email Options')
     pe.add_argument('-r', '--no-reattach', action='store_true',
             help="Don't reattach attachment files to email")
     pe.add_argument('-s', '--no-save', action='store_true',
             help="Don't save email attachments as individual files")
+    pe.add_argument('--html', action='store_true',
+            help="Save HTML of message bodies")
 
     p.add_argument('group', type=str)
 
@@ -462,7 +473,7 @@ if __name__ == "__main__":
     with Mkchdir(args.group):
         if args.email:
             with Mkchdir('email'):
-                archive_email(yga, reattach=(not args.no_reattach), save=(not args.no_save))
+                archive_email(yga, reattach=(not args.no_reattach), save=(not args.no_save), html=args.html)
         if args.files:
             with Mkchdir('files'):
                 archive_files(yga)
