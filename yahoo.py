@@ -67,13 +67,13 @@ def archive_email(yga, reattach=True, save=True, html=False):
                 print "ERROR: Read timeout, retrying"
                 time.sleep(HOLDOFF)
         if html:
-		for i in range(TRIES):
-		    try:
-			html_json = yga.messages(id)
-			break
-		    except requests.exceptions.ReadTimeout:
-			print "ERROR: Read timeout, retrying"
-			time.sleep(HOLDOFF)
+		    for i in range(TRIES):
+		        try:
+			         html_json = yga.messages(id)
+			         break
+		        except requests.exceptions.ReadTimeout:
+			         print "ERROR: Read timeout, retrying"
+			         time.sleep(HOLDOFF)
 
         eml = email.message_from_string(raw_json['rawEmail'])
 
@@ -139,11 +139,11 @@ def archive_email(yga, reattach=True, save=True, html=False):
 
         with file("%s.eml" % (id,), 'w') as f:
             f.write(eml.as_string(unixfrom=False))
-        if html:
-		with file("%s.html" % (id,), 'w') as f:
-		    f.write(html_json['messageBody'].encode('utf-8'))
 
-        break
+        if html:
+		    with file("%s.html" % (id,), 'w') as f:
+		        f.write(html_json['messageBody'].encode('utf-8'))
+        
 
 def archive_files(yga, subdir=None):
     if subdir:
