@@ -60,7 +60,7 @@ def archive_email(yga, reattach=True, save=True):
         id = message['messageId']
 
         print "* Fetching raw message #%d of %d" % (id,count)
-        for i in range(5):
+        for i in range(TRIES):
             try:
                 raw_json = yga.messages(id, 'raw')
                 break

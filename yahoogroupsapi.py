@@ -84,7 +84,7 @@ class YahooGroupsAPI:
 
         uri = "/".join(uri_parts)
 
-        r = self.s.get(uri, params=opts, allow_redirects=False, timeout=10)
+        r = self.s.get(uri, params=opts, allow_redirects=False, timeout=15)
         try:
             r.raise_for_status()
             if r.status_code != 200:
