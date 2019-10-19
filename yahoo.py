@@ -297,6 +297,54 @@ def archive_calendar(yga):
 
         archiveDate += datetime.timedelta(days=1000)
 
+def archive_about(yga):
+    groupinfo = yga.HackGroupInfo()
+
+    with open('about.json', 'wb') as f:
+        f.write(json.dumps(groupinfo, indent=4))
+
+	statistics = yga.statistics()
+
+    with open('statistics.json', 'wb') as f:
+        f.write(json.dumps(statistics, indent=4))
+
+    # Check if we really have a photo in the group description
+    if ('photoInfo' in statistics['groupHomePage'] and statistics['groupHomePage']['photoInfo']):
+        exclude = []
+
+        # find best photoinfo (largest size)
+        photoinfo = get_best_photoinfo(statistics['groupHomePage']['photoInfo'], exclude)
+
+        if photoinfo is not None:
+            fname = 'GroupPhoto-%s' % basename(photoinfo['displayURL']).split('?')[0]
+            print "* Downloading the photo in group description as %s" % fname
+            for i in range(TRIES):
+			    try:
+			        with open(fname, 'wb') as f:
+				        yga.download_file(photoinfo['displayURL'],f)
+				        break
+			    except requests.exceptions.HTTPError as err:
+				     print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+				     time.sleep(HOLDOFF)
+
+    if statistics['groupCoverPhoto']['hasCoverImage']:
+        exclude = []
+
+        # find best photoinfo (largest size)
+        photoinfo = get_best_photoinfo(statistics['groupCoverPhoto']['photoInfo'], exclude)
+
+        if photoinfo is not None:
+            fname = 'GroupCover-%s' % basename(photoinfo['displayURL']).split('?')[0]
+            print "* Downloading the group cover as %s" % fname
+            for i in range(TRIES):
+			    try:
+			        with open(fname, 'wb') as f:
+				        yga.download_file(photoinfo['displayURL'],f)
+				        break
+			    except requests.exceptions.HTTPError as err:
+				     print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+				     time.sleep(HOLDOFF)
+
 
 class Mkchdir:
     d = ""
@@ -336,6 +384,8 @@ if __name__ == "__main__":
             help='Only archive links')
     po.add_argument('-c', '--calendar', action='store_true',
             help='Only archive events')
+    po.add_argument('-a', '--about', action='store_true',
+            help='Only archive general infos about the group')
 
     pe = p.add_argument_group(title='Email Options')
     pe.add_argument('-r', '--no-reattach', action='store_true',
@@ -358,8 +408,8 @@ if __name__ == "__main__":
             print "Login failed"
             sys.exit(1)
 
-    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar):
-        args.email = args.files = args.photos = args.database = args.links = args.calendar = True
+    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about):
+        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = True
 
     with Mkchdir(args.group):
         if args.email:
@@ -380,3 +430,6 @@ if __name__ == "__main__":
         if args.calendar:
             with Mkchdir('calendar'):
                 archive_calendar(yga)
+        if args.about:
+            with Mkchdir('about'):
+                archive_about(yga)
