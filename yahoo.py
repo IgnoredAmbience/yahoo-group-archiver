@@ -45,7 +45,12 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
 
 
 def archive_email(yga, reattach=True, save=True):
-    msg_json = yga.messages()
+    try:
+        msg_json = yga.messages()
+    except requests.exceptions.HTTPError as err:
+        print "ERROR: Couldn't download message; %s" % err.message 
+        return
+
     count = msg_json['totalRecords']
 
     msg_json = yga.messages(count=count)
@@ -248,6 +253,11 @@ def archive_links(yga):
 
 def archive_calendar(yga):
     groupinfo = yga.HackGroupInfo()
+
+    if 'entityId' not in groupinfo:
+        print "ERROR: Couldn't download calendar/events: missing entityId"
+        return
+
     entityId = groupinfo['entityId']
 
 	# We get the wssid
