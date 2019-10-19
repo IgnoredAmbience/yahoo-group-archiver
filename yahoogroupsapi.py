@@ -14,7 +14,9 @@ class YahooGroupsAPI:
             'files': 'v2',
             'albums': 'v2', # v3 is available, but changes where photos are located in json
             'database': 'v1',
-            'links': 'v1'
+            'links': 'v1',
+            'statistics': 'v1',
+            'polls': 'v1'
             }
 
     s = None
