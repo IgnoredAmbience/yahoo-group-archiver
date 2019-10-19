@@ -262,8 +262,13 @@ def archive_calendar(yga):
 
 	# We get the wssid
     tmpUri = "https://calendar.yahoo.com/ws/v3/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % entityId
-    tmpContent = yga.get_file_nostatus(tmpUri)
-    wssid = json.loads(tmpContent)['calendarError']['wssid']
+    tmpContent = yga.get_file_nostatus(tmpUri) # We expect a 403 here
+    tmpJson = json.loads(tmpContent)['calendarError']
+
+    if 'wssid' not in tmpJson:
+        print "ERROR: Couldn't download calendar/events: missing wssid"
+        return
+    wssid = tmpJson['wssid']
 
 	# Getting everything since the launch of Yahoo! Groups (January 30, 2001)
     archiveDate = datetime.datetime(2001,1,30)
@@ -271,18 +276,24 @@ def archive_calendar(yga):
     while archiveDate < endDate:
         jsonStart = archiveDate.strftime("%Y%m%d")
         jsonEnd = (archiveDate + datetime.timedelta(days=1000)).strftime("%Y%m%d")
-        print "* Getting events between %s and %s" % (jsonStart,jsonEnd)
         calURL = "https://calendar.yahoo.com/ws/v3/users/%s/calendars/events/?format=json&dtstart=%s&dtend=%s&wssid=%s" % \
                     (entityId, jsonStart, jsonEnd, wssid)
-        filename = jsonStart + "-" + jsonEnd + ".json"
-        with open(filename, 'wb') as f:
-			for i in range(TRIES):
-				try:
-				    yga.download_file(calURL, f)
-				    break
-				except requests.exceptions.HTTPError as err:
-				    print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-				    time.sleep(HOLDOFF)		
+
+        for i in range(TRIES):
+			try:
+				 print "* Trying to get events between %s and %s" % (jsonStart,jsonEnd)
+				 calContentRaw = yga.get_file(calURL)
+				 break
+			except requests.exceptions.HTTPError as err:
+				 print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+				 time.sleep(HOLDOFF)
+
+        calContent = json.loads(calContentRaw)
+        if calContent['events']['count'] > 0 :
+        	filename = jsonStart + "-" + jsonEnd + ".json"
+        	with open(filename, 'wb') as f:
+				print "* Got %d event(s) between %s and %s" % (calContent['events']['count'],jsonStart,jsonEnd)
+				f.write(json.dumps(calContent, indent=4))
 
         archiveDate += datetime.timedelta(days=1000)
 
