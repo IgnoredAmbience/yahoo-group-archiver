@@ -12,6 +12,7 @@ Features
 * Fetch all database tables
 * Fetch all links
 * Fetch all events in the calendar
+* Fetch all polls
 
 Requirements:
 * Python 2.7?
@@ -28,4 +29,4 @@ If the 2FA is enabled on your account, you can extract the T and Y cookie from y
 ./yahoo.py -ct 'YOUR_T_COOKIE' -cy 'YOUR_Y_COOKIE' groupname
 ```
 
-Files will be placed into the directory structure groupname/{email,files,photos,databases,links,calendar}
+Files will be placed into the directory structure groupname/{email,files,photos,databases,links,calendar,polls}
