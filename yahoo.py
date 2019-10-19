@@ -40,7 +40,7 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
         return best
 
 
-def archive_email(yga, reattach=True, save=True):
+def archive_email(yga, reattach=True, save=True, html=False):
     try:
         msg_json = yga.messages()
     except requests.exceptions.HTTPError as err:
@@ -63,6 +63,14 @@ def archive_email(yga, reattach=True, save=True):
             except requests.exceptions.ReadTimeout:
                 print "ERROR: Read timeout, retrying"
                 time.sleep(HOLDOFF)
+        if html:
+		for i in range(TRIES):
+		    try:
+			html_json = yga.messages(id)
+			break
+		    except requests.exceptions.ReadTimeout:
+			print "ERROR: Read timeout, retrying"
+			time.sleep(HOLDOFF)
 
         eml = email.message_from_string(raw_json['rawEmail'])
 
@@ -126,9 +134,13 @@ def archive_email(yga, reattach=True, save=True):
                             email.encoders.encode_base64(part)
                             del atts[fname]
 
-        fname = "%s.eml" % (id,)
-        with file(fname, 'w') as f:
+        with file("%s.eml" % (id,), 'w') as f:
             f.write(eml.as_string(unixfrom=False))
+        if html:
+		with file("%s.html" % (id,), 'w') as f:
+		    f.write(html_json['messageBody'].encode('utf-8'))
+
+        break
 
 def archive_files(yga, subdir=None):
     if subdir:
@@ -434,6 +446,8 @@ if __name__ == "__main__":
             help="Don't reattach attachment files to email")
     pe.add_argument('-s', '--no-save', action='store_true',
             help="Don't save email attachments as individual files")
+    pe.add_argument('--html', action='store_true',
+            help="Save HTML of message bodies")
 
     p.add_argument('group', type=str)
 
@@ -456,7 +470,7 @@ if __name__ == "__main__":
     with Mkchdir(args.group):
         if args.email:
             with Mkchdir('email'):
-                archive_email(yga, reattach=(not args.no_reattach), save=(not args.no_save))
+                archive_email(yga, reattach=(not args.no_reattach), save=(not args.no_save), html=args.html)
         if args.files:
             with Mkchdir('files'):
                 archive_files(yga)
