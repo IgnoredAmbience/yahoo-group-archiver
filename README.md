@@ -20,7 +20,7 @@ Requirements:
 Usage:
 ```bash
 pip install requests
-./yahoo.py -u username groupname
+./yahoo.py -us username groupname
 ```
 
 If the 2FA is enabled on your account, you can extract the T and Y cookie from your browser and use the following:

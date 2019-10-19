@@ -345,6 +345,52 @@ def archive_about(yga):
 				     print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
 				     time.sleep(HOLDOFF)
 
+def archive_polls(yga):
+    try:
+        pollsList = yga.polls(count=100,sort='DESC')
+    except Exception as e:
+        print "ERROR: Couldn't access Polls functionality for this group"
+        return
+
+    if len(pollsList) == 100:
+        print "* Got 100 polls, checking if there are more ..."
+        endoflist = False
+        offset=99
+
+        while not endoflist:
+            tmpList=yga.polls(count=100,sort='DESC',start=offset)
+            tmpCount = len(tmpList)
+            print "* Got %d more polls" % tmpCount
+
+            # Trivial case first
+            if tmpCount < 100:
+                endoflist=True
+
+            # Again we got 100 polls, increase the offset
+            if tmpCount == 100:
+                offset += 99
+
+            # Last survey
+            if pollsList[len(pollsList)-1]['surveyId'] == tmpList[len(tmpList)-1]['surveyId']:
+                print "* No new polls found with offset %d" % offset
+                endoflist = True
+                break
+            
+            pollsList += tmpList
+
+    totalPolls = len(pollsList)
+    print "* Found %d polls to grab" % totalPolls
+
+    n = 1
+    for p in pollsList:
+        print "* Downloading poll %d [%d/%d]" %  (p['surveyId'],n,totalPolls)
+        pollInfo = yga.polls(p['surveyId'])
+        fname = '%s-%s.json' % (n,p['surveyId'])
+
+        with open(fname, 'wb') as f:
+            f.write(json.dumps(pollInfo, indent=4))
+        n += 1
+
 
 class Mkchdir:
     d = ""
@@ -363,8 +409,8 @@ class Mkchdir:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument('-u', '--username', type=str)
-    p.add_argument('-p', '--password', type=str,
+    p.add_argument('-us', '--username', type=str)
+    p.add_argument('-pa', '--password', type=str,
             help='If no password supplied, will be requested on the console')
     p.add_argument('-ct', '--cookie_t', type=str)
     p.add_argument('-cy', '--cookie_y', type=str)
@@ -384,6 +430,8 @@ if __name__ == "__main__":
             help='Only archive links')
     po.add_argument('-c', '--calendar', action='store_true',
             help='Only archive events')
+    po.add_argument('-p', '--polls', action='store_true',
+            help='Only archive polls')
     po.add_argument('-a', '--about', action='store_true',
             help='Only archive general infos about the group')
 
@@ -408,8 +456,8 @@ if __name__ == "__main__":
             print "Login failed"
             sys.exit(1)
 
-    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about):
-        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = True
+    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or args.polls):
+        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = args.polls = True
 
     with Mkchdir(args.group):
         if args.email:
@@ -433,3 +481,6 @@ if __name__ == "__main__":
         if args.about:
             with Mkchdir('about'):
                 archive_about(yga)
+        if args.polls:
+            with Mkchdir('polls'):
+                archive_polls(yga)
