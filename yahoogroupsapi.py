@@ -3,6 +3,7 @@ from HTMLParser import HTMLParser
 import json
 import functools
 import time
+import sys
 
 class YahooGroupsAPI:
     BASE_URI="https://groups.yahoo.com/api"
@@ -53,14 +54,33 @@ class YahooGroupsAPI:
     def download_file(self, url, f, **args):
         retries = 5
         while True:
-            r = self.s.get(url, stream=True, **args)
-            if r.status_code == 400 and retries > 0:
-                print "[Got 400 error for %s, will sleep and retry %d times]" % (url, retries)
-                retries -= 1
-                time.sleep(5)
-                continue
-            r.raise_for_status()
-            break
+            try:
+                r = self.s.get(url, stream=True, **args)
+                r.raise_for_status()
+                break
+
+            except Exception as e:
+                #print "sys.exc_info", sys.exc_info()
+
+                if retries <= 0:
+                    raise e
+
+                if isinstance(e, requests.exceptions.SSLError):
+                    print "[Got SSLError exception for %s, will sleep and retry %d times]" % (url, retries)
+                    retries -= 1
+                    time.sleep(5)
+                    continue
+
+                if e.response.status_code == 400:
+                    if e.response.raw.data == "<h3>Found malware in the request data</h3>":
+                        print "** Found malware in the request data for %s" % (url)
+                        return
+
+                    print "[Got 400 error for %s, will sleep and retry %d times]" % (url, retries)
+                    retries -= 1
+                    time.sleep(5)
+                    continue
+
         for chunk in r.iter_content(chunk_size=4096):
             f.write(chunk)
 

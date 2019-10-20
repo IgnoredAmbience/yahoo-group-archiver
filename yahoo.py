@@ -101,9 +101,18 @@ def archive_files(yga, subdir=None):
         if path['type'] == 0:
             # Regular file
             name = unescape_html(path['fileName'])
+
+            if os.path.isfile(basename(name)):
+                print "* Skipping file '%s' as it already exists" % (name)
+                continue
+
             print "* Fetching file '%s' (%d/%d)" % (name, n, sz)
-            with open(basename(name), 'wb') as f:
-                yga.download_file(path['downloadURL'], f)
+            try:
+                with open(basename(name), 'wb') as f:
+                    yga.download_file(path['downloadURL'], f)
+            except:
+                print "Error:", sys.exc_info()
+                os.remove(basename(name))
 
         elif path['type'] == 1:
             # Directory
