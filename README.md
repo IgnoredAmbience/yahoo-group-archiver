@@ -18,7 +18,10 @@ Requirements:
 Usage:
 ```bash
 pip install requests
-./yahoo.py -u username groupname
+./yahoo.py -u username -ct <T_cookie> -cy <Y_cookie> groupname
 ```
+
+You will need to get the `T` and `Y` cookie values from an authenticated
+browser session.
 
 Files will be placed into the directory structure groupname/{email,files,photos,databases}
