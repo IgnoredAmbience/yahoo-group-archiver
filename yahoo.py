@@ -22,23 +22,33 @@ def get_best_photoinfo(photoInfoArr):
     return best
 
 
-def archive_email(yga, reattach=True, save=True):
+def archive_email(yga, reattach=True, save=True, start=-1, stop=0):
     msg_json = yga.messages()
-    start = count = msg_json['totalRecords']
+    count = msg_json['totalRecords']
+
+    if (start < 0):
+        start = count
 
     print "Group has %s messages" % (count)
 
-    while start > 0:
-        n = min(1000, start - 1000)
+    step = 1000
+
+    while start > 0 and start > stop:
+        n = min(step, max(start - step, start - stop))
 
         print "Fetching messages #%d - #%d of %d" % (start, start - n, count)
 
-        msg_json = yga.messages(start=start, count=n)
+        msg_json = yga.messages(start=start, count=n + 1)
 
         start = start - n
 
         for message in msg_json['messages']:
             id = message['messageId']
+            eml_fname = "%s.eml" % (id)
+
+            if os.path.isfile(eml_fname):
+                print "* Skipping message #%d as it already exists" % (id)
+                continue
 
             print "* Fetching raw message #%d of %d" % (id,count)
             raw_json = yga.messages(id, 'raw')
@@ -72,8 +82,7 @@ def archive_email(yga, reattach=True, save=True):
                                 email.encoders.encode_base64(part)
                                 del atts[fname]
 
-            fname = "%s.eml" % (id,)
-            with file(fname, 'w') as f:
+            with file(eml_fname, 'w') as f:
                 f.write(eml.as_string(unixfrom=False))
 
 def archive_files(yga, subdir=None):
@@ -178,6 +187,10 @@ if __name__ == "__main__":
             help="Don't reattach attachment files to email")
     pe.add_argument('-s', '--no-save', action='store_true',
             help="Don't save email attachments as individual files")
+    pe.add_argument('--start', type=int, default=-1,
+            help="Message number to start from")
+    pe.add_argument('--stop', type=int, default=0,
+            help="Message number to stop at")
 
     p.add_argument('group', type=str)
 
@@ -197,7 +210,7 @@ if __name__ == "__main__":
     with Mkchdir(args.group):
         if args.email:
             with Mkchdir('email'):
-                archive_email(yga, reattach=(not args.no_reattach), save=(not args.no_save))
+                archive_email(yga, reattach=(not args.no_reattach), save=(not args.no_save), start=args.start, stop=args.stop)
         if args.files:
             with Mkchdir('files'):
                 archive_files(yga)
