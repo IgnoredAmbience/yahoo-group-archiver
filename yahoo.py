@@ -134,6 +134,9 @@ def archive_email(yga, save=True, html=True):
             f.write(json.dumps(raw_json, indent=4))
 
         if html:
+		    if 'messageBody' not in html_json:
+		        print "ERROR: message %d doesn't have a messageBody! HTML export not written." % (id)
+		        continue
 		    with file("%s.html" % (id,), 'w') as f:
 		        f.write(html_json['messageBody'].encode('utf-8'))
         
