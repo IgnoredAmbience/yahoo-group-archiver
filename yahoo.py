@@ -67,6 +67,7 @@ def archive_email(yga, save=True, html=True):
                 print "ERROR: Read timeout, retrying"
                 time.sleep(HOLDOFF)
         if html:
+		    print "* Fetching message #%d of %d" % (id,count)
 		    for i in range(TRIES):
 		        try:
 			         html_json = yga.messages(id)
@@ -130,15 +131,12 @@ def archive_email(yga, save=True, html=True):
                             with file(fname, 'wb') as f:
                                 f.write(atts[attach['filename']])
 
-        with file("%s_raw.json" % (id,), 'wb') as f:
+        with file("%s_raw.json" % (id,), 'w') as f:
             f.write(json.dumps(raw_json, indent=4))
 
         if html:
-		    if 'messageBody' not in html_json:
-		        print "ERROR: message %d doesn't have a messageBody! HTML export not written." % (id)
-		        continue
-		    with file("%s.html" % (id,), 'w') as f:
-		        f.write(html_json['messageBody'].encode('utf-8'))
+		    with file("%s.json" % (id,), 'w') as f:
+		        f.write(json.dumps(html_json, indent=4))
         
 
 def archive_files(yga, subdir=None):
@@ -250,7 +248,7 @@ def archive_links(yga):
 
             with open('links.json', 'w') as f:
                 f.write(json.dumps(child_links['links'], indent=4))
-                print "* Written %d links from folder %s" % (child_links['numLink'],name) 
+                print "** Written %d links from folder %s" % (child_links['numLink'],name) 
 
     with open('links.json', 'w') as f:
         f.write(json.dumps(links['links'], indent=4))
@@ -297,7 +295,7 @@ def archive_calendar(yga):
         if calContent['events']['count'] > 0 :
         	filename = jsonStart + "-" + jsonEnd + ".json"
         	with open(filename, 'wb') as f:
-				print "* Got %d event(s) between %s and %s" % (calContent['events']['count'],jsonStart,jsonEnd)
+				print "** Got %d event(s)" % (calContent['events']['count'])
 				f.write(json.dumps(calContent, indent=4))
 
         archiveDate += datetime.timedelta(days=1000)
@@ -444,7 +442,7 @@ if __name__ == "__main__":
     pe.add_argument('-s', '--no-save', action='store_true',
             help="Don't save email attachments as individual files")
     pe.add_argument('--html', action='store_false',
-            help="Don't save HTML of message bodies")
+            help="Don't save the non-raw version of message")
 
     p.add_argument('group', type=str)
 
