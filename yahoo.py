@@ -24,49 +24,57 @@ def get_best_photoinfo(photoInfoArr):
 
 def archive_email(yga, reattach=True, save=True):
     msg_json = yga.messages()
-    count = msg_json['totalRecords']
+    start = count = msg_json['totalRecords']
 
-    msg_json = yga.messages(count=count)
-    print "Group has %s messages, got %s" % (count, msg_json['numRecords'])
+    print "Group has %s messages" % (count)
 
-    for message in msg_json['messages']:
-        id = message['messageId']
+    while start > 0:
+        n = min(1000, start - 1000)
 
-        print "* Fetching raw message #%d of %d" % (id,count)
-        raw_json = yga.messages(id, 'raw')
-        mime = unescape_html(raw_json['rawEmail']).encode('latin_1', 'ignore')
+        print "Fetching messages #%d - #%d of %d" % (start, start - n, count)
 
-        eml = email.message_from_string(mime)
+        msg_json = yga.messages(start=start, count=n)
 
-        if (save or reattach) and message['hasAttachments']:
-            atts = {}
-            if not 'attachments' in message:
-                print "** Yahoo says this message has attachments, but I can't find any!"
-            else:
-                for attach in message['attachments']:
-                    print "** Fetching attachment '%s'" % (attach['filename'],)
-                    if 'link' in attach:
-                        atts[attach['filename']] = yga.get_file(attach['link'])
-                    elif 'photoInfo' in attach:
-                        photoinfo = get_best_photoinfo(attach['photoInfo'])
-                        atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
+        start = start - n
 
-                    if save:
-                        fname = "%s-%s" % (id, basename(attach['filename']))
-                        with file(fname, 'wb') as f:
-                            f.write(atts[attach['filename']])
+        for message in msg_json['messages']:
+            id = message['messageId']
 
-                if reattach:
-                    for part in eml.walk():
-                        fname = part.get_filename()
-                        if fname and fname in atts:
-                            part.set_payload(atts[fname])
-                            email.encoders.encode_base64(part)
-                            del atts[fname]
+            print "* Fetching raw message #%d of %d" % (id,count)
+            raw_json = yga.messages(id, 'raw')
+            mime = unescape_html(raw_json['rawEmail']).encode('latin_1', 'ignore')
 
-        fname = "%s.eml" % (id,)
-        with file(fname, 'w') as f:
-            f.write(eml.as_string(unixfrom=False))
+            eml = email.message_from_string(mime)
+
+            if (save or reattach) and message['hasAttachments']:
+                atts = {}
+                if not 'attachments' in message:
+                    print "** Yahoo says this message has attachments, but I can't find any!"
+                else:
+                    for attach in message['attachments']:
+                        print "** Fetching attachment '%s'" % (attach['filename'],)
+                        if 'link' in attach:
+                            atts[attach['filename']] = yga.get_file(attach['link'])
+                        elif 'photoInfo' in attach:
+                            photoinfo = get_best_photoinfo(attach['photoInfo'])
+                            atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
+
+                        if save:
+                            fname = "%s-%s" % (id, basename(attach['filename']))
+                            with file(fname, 'wb') as f:
+                                f.write(atts[attach['filename']])
+
+                    if reattach:
+                        for part in eml.walk():
+                            fname = part.get_filename()
+                            if fname and fname in atts:
+                                part.set_payload(atts[fname])
+                                email.encoders.encode_base64(part)
+                                del atts[fname]
+
+            fname = "%s.eml" % (id,)
+            with file(fname, 'w') as f:
+                f.write(eml.as_string(unixfrom=False))
 
 def archive_files(yga, subdir=None):
     if subdir:
