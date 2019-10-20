@@ -23,7 +23,7 @@ pip install requests
 ./yahoo.py -ct 'YOUR_T_COOKIE' -cy 'YOUR_Y_COOKIE' groupname
 ```
 
-You can extract the T and Y cookie from your browser and use the following:
+You can extract the T and Y cookie from your browser.
 
 
 Files will be placed into the directory structure groupname/{email,files,photos,databases,links,calendar,polls}
