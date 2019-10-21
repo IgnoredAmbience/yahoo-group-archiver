@@ -1,7 +1,6 @@
 #!/usr/bin/env python2
 from yahoogroupsapi import YahooGroupsAPI
 import json
-import email
 import urllib
 import os
 from HTMLParser import HTMLParser
@@ -9,10 +8,12 @@ from os.path import basename
 import argparse
 import getpass
 import sys
-import requests
 import time
 import datetime
 import math
+import logging
+
+import requests
 
 # number of seconds to wait before trying again
 HOLDOFF=10
@@ -23,6 +24,7 @@ TRIES=10
 hp = HTMLParser()
 
 def get_best_photoinfo(photoInfoArr, exclude=[]):
+    logger = logging.getLogger(name="get_best_photoinfo")
     rs = {'tn': 0, 'sn': 1, 'hr': 2, 'or': 3}
 
     # exclude types we're not interested in
@@ -33,7 +35,7 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
     best = photoInfoArr[0]
     for info in photoInfoArr:
         if info['photoType'] not in rs:
-            print "ERROR photoType '%s' not known" % info['photoType']
+            logger.error("photoType '%s' not known" % info['photoType'])
             continue
         if rs[info['photoType']] >= rs[best['photoType']]:
             best = info
@@ -44,51 +46,52 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
 
 
 def archive_email(yga, save=True, html=True):
+    logger = logging.getLogger('archive_email')
     try:
         msg_json = yga.messages()
     except requests.exceptions.HTTPError as err:
-        print "ERROR: Couldn't download message; %s" % err.message 
+        logger.error("Couldn't download message; %s" % err.message)
         return
 
     count = msg_json['totalRecords']
 
     msg_json = yga.messages(count=count)
-    print "Group has %s messages, got %s" % (count, msg_json['numRecords'])
+    logger.info("Group has %s messages, got %s" % (count, msg_json['numRecords']))
 
     for message in msg_json['messages']:
         id = message['messageId']
 
-        print "* Fetching raw message #%d of %d" % (id,count)
+        logger.info("* Fetching raw message #%d of %d" % (id,count))
         for i in range(TRIES):
             try:
                 raw_json = yga.messages(id, 'raw')
                 break
             except requests.exceptions.ReadTimeout:
-                print "ERROR: Read timeout, retrying"
+                logger.error("Read timeout for raw message %d of %d, retrying" % (id,count))
                 time.sleep(HOLDOFF)
             except requests.exceptions.HTTPError as err:
-                print "ERROR: Raw grab failed"
+                logger.error("Raw grab failed for message %d of %d" % (id,count))
                 break
         if html:
-		    print "* Fetching message #%d of %d" % (id,count)
-		    for i in range(TRIES):
-		        try:
-			         html_json = yga.messages(id)
-			         break
-		        except requests.exceptions.ReadTimeout:
-			         print "ERROR: Read timeout, retrying"
-			         time.sleep(HOLDOFF)
-		        except requests.exceptions.HTTPError as err:
-			         print "ERROR: Grab failed"
-			         break
+            logger.info("* Fetching html message #%d of %d" % (id,count))
+            for i in range(TRIES):
+                try:
+                     html_json = yga.messages(id)
+                     break
+                except requests.exceptions.ReadTimeout:
+                     logger.error("Read timeout for html message %d of %d, retrying" % (id,count))
+                     time.sleep(HOLDOFF)
+                except requests.exceptions.HTTPError as err:
+                     logger.error("HTML grab failed for message %d of %d" % (id,count))
+                     break
 
         if save and message['hasAttachments']:
             if not 'attachments' in message:
-                print "** Yahoo says this message has attachments, but I can't find any!"
+                logger.warning("Yahoo says this message (%d of %d) has attachments, but I can't find any!" % (id,count))
             else:
                 atts = {}
                 for attach in message['attachments']:
-                    print "** Fetching attachment '%s'" % (attach['filename'],)
+                    logger.info("Fetching attachment '%s'" % (attach['filename'],))
                     if 'link' in attach:
                         # try and download the attachment
                         # (sometimes yahoo doesn't keep them)
@@ -97,7 +100,7 @@ def archive_email(yga, save=True, html=True):
                                 atts[attach['filename']] = yga.get_file(attach['link'])
                                 break
                             except requests.exceptions.HTTPError as err:
-                                print "ERROR: can't download attachment, try %d: %s" % (i, err)
+                                logger.error("Can't download attachment, try %d: %s" % (i, err))
                                 time.sleep(HOLDOFF)
 
                     elif 'photoInfo' in attach:
@@ -110,7 +113,7 @@ def archive_email(yga, save=True, html=True):
                             photoinfo = get_best_photoinfo(attach['photoInfo'], exclude)
 
                             if photoinfo is None:
-                                print("ERROR: can't find a viable copy of this photo")
+                                logger.error("Can't find a viable copy of this photo")
                                 break
 
                             # try and download it
@@ -121,7 +124,7 @@ def archive_email(yga, save=True, html=True):
                                     break
                                 except requests.exceptions.HTTPError as err:
                                     # yahoo says no. exclude this size and try for another.
-                                    print "ERROR downloading '%s' variant, try %d: %s" % (photoinfo['photoType'], i, err)
+                                    logger.error("Can't download '%s' variant, try %d: %s" % (photoinfo['photoType'], i, err))
                                     time.sleep(HOLDOFF)
                                     #exclude.append(photoinfo['photoType'])
 
@@ -138,13 +141,13 @@ def archive_email(yga, save=True, html=True):
             f.write(json.dumps(raw_json, indent=4))
 
         if html:
-		    with file("%s.json" % (id,), 'w') as f:
-		        f.write(json.dumps(html_json, indent=4))
-        
+            with file("%s.json" % (id,), 'w') as f:
+                f.write(json.dumps(html_json, indent=4))
 
 def process_single_attachment(yga, attach):
+    logger = logging.getLogger(name="process_single_attachment")
     for frec in attach['files']:
-        print "** Fetching attachment '%s'" % (frec['filename'],)
+        logger.info("Fetching attachment '%s'" % (frec['filename'],))
         if 'link' in frec:
             # try and download the attachment
             # (sometimes yahoo doesn't keep them)
@@ -153,7 +156,7 @@ def process_single_attachment(yga, attach):
                     att = yga.get_file(frec['link'])
                     break
                 except requests.exceptions.HTTPError as err:
-                    print "ERROR: can't download attachment, try %d: %s" % (i, err)
+                    logger.error("Can't download attachment, try %d: %s" % (i, err))
                     time.sleep(HOLDOFF)
 
         elif 'photoInfo' in frec:
@@ -166,7 +169,7 @@ def process_single_attachment(yga, attach):
                 photoinfo = get_best_photoinfo(frec['photoInfo'], exclude)
 
                 if photoinfo is None:
-                    print("ERROR: can't find a viable copy of this photo")
+                    logger.error("Can't find a viable copy of this photo")
                     break
 
                 # try and download it
@@ -177,7 +180,7 @@ def process_single_attachment(yga, attach):
                         break
                     except requests.exceptions.HTTPError as err:
                         # yahoo says no. exclude this size and try for another.
-                        print "ERROR downloading '%s' variant, try %d: %s" % (photoinfo['photoType'], i, err)
+                        logger.error("ERROR downloading '%s' variant, try %d: %s" % (photoinfo['photoType'], i, err))
                         time.sleep(HOLDOFF)
                         #exclude.append(photoinfo['photoType'])
 
@@ -192,13 +195,14 @@ def process_single_attachment(yga, attach):
 
 
 def archive_files(yga, subdir=None):
+    logger = logging.getLogger(name="archive_files")
     try:
         if subdir:
             file_json = yga.files(sfpath=subdir)
         else:
             file_json = yga.files()
     except Exception as e:
-        print "ERROR: Couldn't access Files functionality for this group"
+        logger.error("Couldn't access Files functionality for this group")
         return
 
     with open('fileinfo.json', 'w') as f:
@@ -211,23 +215,24 @@ def archive_files(yga, subdir=None):
         if path['type'] == 0:
             # Regular file
             name = hp.unescape(path['fileName']).replace("/", "_")
-            print "* Fetching file '%s' (%d/%d)" % (name, n, sz)
+            logger.info("Fetching file '%s' (%d/%d)" % (name, n, sz))
             with open(basename(name), 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
 
         elif path['type'] == 1:
             # Directory
-            print "* Fetching directory '%s' (%d/%d)" % (path['fileName'], n, sz)
+            logger.info("Fetching directory '%s' (%d/%d)" % (path['fileName'], n, sz))
             with Mkchdir(basename(path['fileName']).replace('.', '')):
                 pathURI = urllib.unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
 
 
 def archive_attachments(yga):
+    logger = logging.getLogger(name="archive_attachments")
     try:
         attachments_json = yga.attachments()
     except Exception as e:
-        print "ERROR: Couldn't access Files functionality for this group"
+        logger.error("Couldn't access Attachments functionality for this group")
         return
 
     with open('allattachmentinfo.json', 'w') as f:
@@ -237,17 +242,22 @@ def archive_attachments(yga):
     for a in attachments_json['attachments']:
         n += 1
         with Mkchdir(str(a['attachmentId'])):
-            a_json = yga.attachments(a['attachmentId'])
+            try:
+                a_json = yga.attachments(a['attachmentId'])
+            except Exception as e:
+                logger.error("Attachment id %d inaccessible." % a['attachmentId'])
+                continue
             with open('attachmentinfo.json', 'w') as f:
                 f.write(json.dumps(a_json, indent=4))
                 process_single_attachment(yga, a_json)
 
 
 def archive_photos(yga):
+    logger = logging.getLogger(name="archive_photos")
     try:
         nb_albums = yga.albums(count=5)['total'] + 1
     except Exception as e:
-        print "ERROR: Couldn't access Photos functionality for this group"
+        logger.error("Couldn't access Photos functionality for this group")
         return
     albums = yga.albums(count=nb_albums)
     n = 0
@@ -259,7 +269,7 @@ def archive_photos(yga):
         n += 1
         name = hp.unescape(a['albumName']).replace("/", "_")
         # Yahoo has an off-by-one error in the album count...
-        print "* Fetching album '%s' (%d/%d)" % (name, n, albums['total'] - 1)
+        logger.info("Fetching album '%s' (%d/%d)" % (name, n, albums['total'] - 1))
 
         with Mkchdir(basename(name).replace('.', '')):
             photos = yga.albums(a['albumId'])
@@ -271,7 +281,7 @@ def archive_photos(yga):
             for photo in photos['photos']:
                 p += 1
                 pname = hp.unescape(photo['photoName']).replace("/", "_")
-                print "** Fetching photo '%s' (%d/%d)" % (pname, p, photos['total'])
+                logger.info("Fetching photo '%s' (%d/%d)" % (pname, p, photos['total']))
 
                 photoinfo = get_best_photoinfo(photo['photoInfo'])
                 fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
@@ -281,11 +291,12 @@ def archive_photos(yga):
                             yga.download_file(photoinfo['displayURL'], f)
                             break
                         except requests.exceptions.HTTPError as err:
-                            print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+                            logger.error("HTTP error (sleeping before retry, try %d: %s" % (i, err))
                             time.sleep(HOLDOFF)
 
 
 def archive_db(yga, group):
+    logger = logging.getLogger(name="archive_db")
     for i in range(TRIES):
         try:
             json = yga.database()
@@ -295,18 +306,18 @@ def archive_db(yga, group):
             if err.response.status_code == 403 or err.response.status_code == 401:
                 # 401 or 403 error means Permission Denied. Retrying won't help.
                 break
-            print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+            logger.error("HTTP error (sleeping before retry, try %d: %s" % (i, err))
             time.sleep(HOLDOFF)
 
     if json is None:
-        print "ERROR: Couldn't access Database functionality for this group"
+        logger.error("ERROR: Couldn't access Database functionality for this group")
         return
 
     n = 0
     nts = len(json['tables'])
     for table in json['tables']:
         n += 1
-        print "* Downloading database table '%s' (%d/%d)" % (table['name'], n, nts)
+        logger.info("Downloading database table '%s' (%d/%d)" % (table['name'], n, nts))
 
         name = basename(table['name']) + '.csv'
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (group, table['tableId'])
@@ -315,10 +326,11 @@ def archive_db(yga, group):
 
 
 def archive_links(yga):
+    logger = logging.getLogger(name="archive_links")
     try:
         nb_links = yga.links(count=5)['total'] + 1
     except Exception as e:
-        print "ERROR: Couldn't access Links functionality for this group"
+        logger.error("Couldn't access Links functionality for this group")
         return
     links = yga.links(count=nb_links)
     n = 0
@@ -326,39 +338,40 @@ def archive_links(yga):
     for a in links['dirs']:
         n += 1
         name = hp.unescape(a['folder']).replace("/", "_")
-        print "* Fetching links folder '%s' (%d/%d)" % (name, n, links['numDir'])
+        logger.info("Fetching links folder '%s' (%d/%d)" % (name, n, links['numDir']))
 
         with Mkchdir(basename(name).replace('.', '')):
             child_links = yga.links(linkdir=a['folder'])
 
             with open('links.json', 'w') as f:
                 f.write(json.dumps(child_links['links'], indent=4))
-                print "** Written %d links from folder %s" % (child_links['numLink'],name) 
+                logger.info("Written %d links from folder %s" % (child_links['numLink'],name))
 
     with open('links.json', 'w') as f:
         f.write(json.dumps(links['links'], indent=4))
-        print "* Written %d links from root folder" % links['numLink']    
+        logger.info("Written %d links from root folder" % links['numLink'])
 
 def archive_calendar(yga):
+    logger = logging.getLogger(name="archive_calendar")
     groupinfo = yga.HackGroupInfo()
 
     if 'entityId' not in groupinfo:
-        print "ERROR: Couldn't download calendar/events: missing entityId"
+        logger.error("Couldn't download calendar/events: missing entityId")
         return
 
     entityId = groupinfo['entityId']
 
-	# We get the wssid
+    # We get the wssid
     tmpUri = "https://calendar.yahoo.com/ws/v3/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % entityId
     tmpContent = yga.get_file_nostatus(tmpUri) # We expect a 403 here
     tmpJson = json.loads(tmpContent)['calendarError']
 
     if 'wssid' not in tmpJson:
-        print "ERROR: Couldn't download calendar/events: missing wssid"
+        logger.error("Couldn't download calendar/events: missing wssid")
         return
     wssid = tmpJson['wssid']
 
-	# Getting everything since the launch of Yahoo! Groups (January 30, 2001)
+    # Getting everything since the launch of Yahoo! Groups (January 30, 2001)
     archiveDate = datetime.datetime(2001,1,30)
     endDate = datetime.datetime(2025,1,1)
     while archiveDate < endDate:
@@ -368,30 +381,31 @@ def archive_calendar(yga):
                     (entityId, jsonStart, jsonEnd, wssid)
 
         for i in range(TRIES):
-			try:
-				 print "* Trying to get events between %s and %s" % (jsonStart,jsonEnd)
-				 calContentRaw = yga.get_file(calURL)
-				 break
-			except requests.exceptions.HTTPError as err:
-				 print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-				 time.sleep(HOLDOFF)
+            try:
+                 logger.info("Trying to get events between %s and %s" % (jsonStart,jsonEnd))
+                 calContentRaw = yga.get_file(calURL)
+                 break
+            except requests.exceptions.HTTPError as err:
+                 logger.error("HTTP error (sleeping before retry, try %d: %s" % (i, err))
+                 time.sleep(HOLDOFF)
 
         calContent = json.loads(calContentRaw)
         if calContent['events']['count'] > 0 :
-        	filename = jsonStart + "-" + jsonEnd + ".json"
-        	with open(filename, 'wb') as f:
-				print "** Got %d event(s)" % (calContent['events']['count'])
-				f.write(json.dumps(calContent, indent=4))
+            filename = jsonStart + "-" + jsonEnd + ".json"
+            with open(filename, 'wb') as f:
+                logger.info("Got %d event(s)" % (calContent['events']['count']))
+                f.write(json.dumps(calContent, indent=4))
 
         archiveDate += datetime.timedelta(days=1000)
 
 def archive_about(yga):
+    logger = logging.getLogger(name="archive_about")
     groupinfo = yga.HackGroupInfo()
 
     with open('about.json', 'wb') as f:
         f.write(json.dumps(groupinfo, indent=4))
 
-	statistics = yga.statistics()
+    statistics = yga.statistics()
 
     with open('statistics.json', 'wb') as f:
         f.write(json.dumps(statistics, indent=4))
@@ -405,15 +419,15 @@ def archive_about(yga):
 
         if photoinfo is not None:
             fname = 'GroupPhoto-%s' % basename(photoinfo['displayURL']).split('?')[0]
-            print "* Downloading the photo in group description as %s" % fname
+            logger.info("Downloading the photo in group description as %s" % fname)
             for i in range(TRIES):
-			    try:
-			        with open(fname, 'wb') as f:
-				        yga.download_file(photoinfo['displayURL'],f)
-				        break
-			    except requests.exceptions.HTTPError as err:
-				     print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-				     time.sleep(HOLDOFF)
+                try:
+                    with open(fname, 'wb') as f:
+                        yga.download_file(photoinfo['displayURL'],f)
+                        break
+                except requests.exceptions.HTTPError as err:
+                     logger.error("HTTP error (sleeping before retry, try %d: %s" % (i, err))
+                     time.sleep(HOLDOFF)
 
     if statistics['groupCoverPhoto']['hasCoverImage']:
         exclude = []
@@ -423,32 +437,33 @@ def archive_about(yga):
 
         if photoinfo is not None:
             fname = 'GroupCover-%s' % basename(photoinfo['displayURL']).split('?')[0]
-            print "* Downloading the group cover as %s" % fname
+            logger.info("Downloading the group cover as %s" % fname)
             for i in range(TRIES):
-			    try:
-			        with open(fname, 'wb') as f:
-				        yga.download_file(photoinfo['displayURL'],f)
-				        break
-			    except requests.exceptions.HTTPError as err:
-				     print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-				     time.sleep(HOLDOFF)
+                try:
+                    with open(fname, 'wb') as f:
+                        yga.download_file(photoinfo['displayURL'],f)
+                        break
+                except requests.exceptions.HTTPError as err:
+                     logger.error("HTTP error (sleeping before retry, try %d: %s" % (i, err))
+                     time.sleep(HOLDOFF)
 
 def archive_polls(yga):
+    logger = logging.getLogger(name="archive_polls")
     try:
         pollsList = yga.polls(count=100,sort='DESC')
     except Exception as e:
-        print "ERROR: Couldn't access Polls functionality for this group"
+        logger.error("ERROR: Couldn't access Polls functionality for this group")
         return
 
     if len(pollsList) == 100:
-        print "* Got 100 polls, checking if there are more ..."
+        logger.info("Got 100 polls, checking if there are more ...")
         endoflist = False
         offset=99
 
         while not endoflist:
             tmpList=yga.polls(count=100,sort='DESC',start=offset)
             tmpCount = len(tmpList)
-            print "* Got %d more polls" % tmpCount
+            logger.info("Got %d more polls" % tmpCount)
 
             # Trivial case first
             if tmpCount < 100:
@@ -460,18 +475,18 @@ def archive_polls(yga):
 
             # Last survey
             if pollsList[len(pollsList)-1]['surveyId'] == tmpList[len(tmpList)-1]['surveyId']:
-                print "* No new polls found with offset %d" % offset
+                logger.info("No new polls found with offset %d" % offset)
                 endoflist = True
                 break
-            
+
             pollsList += tmpList
 
     totalPolls = len(pollsList)
-    print "* Found %d polls to grab" % totalPolls
+    logger.info("Found %d polls to grab" % totalPolls)
 
     n = 1
     for p in pollsList:
-        print "* Downloading poll %d [%d/%d]" %  (p['surveyId'],n,totalPolls)
+        logger.info("Downloading poll %d [%d/%d]" %  (p['surveyId'],n,totalPolls))
         pollInfo = yga.polls(p['surveyId'])
         fname = '%s-%s.json' % (n,p['surveyId'])
 
@@ -480,6 +495,7 @@ def archive_polls(yga):
         n += 1
 
 def archive_members(yga):
+    logger = logging.getLogger(name="archive_members")
     for i in range(TRIES):
         try:
             confirmed_json = yga.members('confirmed')
@@ -488,9 +504,9 @@ def archive_members(yga):
             confirmed_json = None
             if err.response.status_code == 403 or err.response.status_code == 401:
                 # 401 or 403 error means Permission Denied. Retrying won't help.
-                print "Permission denied to access members."
+                logger.error("Permission denied to access members.")
                 return
-            print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+            logger.error("HTTP error (sleeping before retry, try %d: %s" % (i, err))
             time.sleep(HOLDOFF)
     n_members = confirmed_json['total']
     # we can dump 100 member records at a time
@@ -503,7 +519,7 @@ def archive_members(yga):
     all_json_data = {"total":n_members,"members":all_members}
     with open('allmemberinfo.json', 'w') as f:
         f.write(json.dumps(all_json_data, indent=4))
-    print "Saved members: Expected: %d, Actual: %d" % (n_members, len(all_members))
+    logger.info("Saved members: Expected: %d, Actual: %d" % (n_members, len(all_members)))
 
 
 class Mkchdir:
@@ -569,7 +585,7 @@ if __name__ == "__main__":
     yga = YahooGroupsAPI(args.group, args.cookie_t, args.cookie_y, args.cookie_e)
     if args.username:
         password = args.password or getpass.getpass()
-        print "logging in..."
+        print "logger in..."
         if not yga.login(args.username, password):
             print "Login failed"
             sys.exit(1)
@@ -578,6 +594,7 @@ if __name__ == "__main__":
         args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = args.polls = args.attachments = args.members = True
 
     with Mkchdir(args.group):
+        logging.basicConfig(filename='archive.log', filemode='a', format='%(asctime)s ,%(msecs)03d %(levelname)s:%(name)s %(message)s', datefmt="%Y-%m-%d %H:%M:%S %Z", level=logging.DEBUG)
         if args.email:
             with Mkchdir('email'):
                 archive_email(yga, save=(not args.no_save), html=args.html)
