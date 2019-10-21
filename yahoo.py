@@ -12,6 +12,7 @@ import datetime
 import math
 import logging
 
+from warcio import WARCWriter
 import requests
 
 # number of seconds to wait before trying again
@@ -614,6 +615,10 @@ if __name__ == "__main__":
         log_file_handler.setFormatter(log_formatter)
         root_logger.addHandler(log_file_handler)
 
+        fhwarc = open('data.warc.gz', 'wb')
+        warc_writer = WARCWriter(fhwarc)
+        yga.ww = warc_writer
+
         if args.email:
             with Mkchdir('email'):
                 archive_email(yga, save=(not args.no_save), html=args.html)
@@ -644,3 +649,5 @@ if __name__ == "__main__":
         if args.members:
             with Mkchdir('members'):
                 archive_members(yga)
+
+        fhwarc.close()
