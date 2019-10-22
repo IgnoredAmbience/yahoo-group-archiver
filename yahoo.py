@@ -273,26 +273,29 @@ def archive_photos(yga):
 
         with Mkchdir(basename(name).replace('.', '')):
             photos = yga.albums(a['albumId'])
+            pages = photos['total'] / 100 + 1
             p = 0
 
-            with open('photos.json', 'w') as f:
-                f.write(json.dumps(photos['photos'], indent=4))
+            for page in range(pages):
+                photos = yga.albums(a['albumId'], start=page*100, count=100)
+                with open('photos-%d.json' % page, 'w') as f:
+                    f.write(json.dumps(photos['photos'], indent=4))
 
-            for photo in photos['photos']:
-                p += 1
-                pname = hp.unescape(photo['photoName']).replace("/", "_")
-                logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
+                for photo in photos['photos']:
+                    p += 1
+                    pname = hp.unescape(photo['photoName']).replace("/", "_")
+                    logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
 
-                photoinfo = get_best_photoinfo(photo['photoInfo'])
-                fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
-                with open(fname, 'wb') as f:
-                    for i in range(TRIES):
-                        try:
-                            yga.download_file(photoinfo['displayURL'], f)
-                            break
-                        except requests.exceptions.HTTPError as err:
-                            logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
-                            time.sleep(HOLDOFF)
+                    photoinfo = get_best_photoinfo(photo['photoInfo'])
+                    fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
+                    with open(fname, 'wb') as f:
+                        for i in range(TRIES):
+                            try:
+                                yga.download_file(photoinfo['displayURL'], f)
+                                break
+                            except requests.exceptions.HTTPError as err:
+                                logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
+                                time.sleep(HOLDOFF)
 
 
 def archive_db(yga):
