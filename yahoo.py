@@ -6,7 +6,6 @@ import os
 from HTMLParser import HTMLParser
 from os.path import basename
 import argparse
-import getpass
 import sys
 import time
 import datetime
@@ -560,12 +559,11 @@ if __name__ == "__main__":
 
     p = argparse.ArgumentParser()
 
-    p.add_argument('-us', '--username', type=str)
-    p.add_argument('-pa', '--password', type=str,
-                   help='If no password supplied, will be requested on the console')
-    p.add_argument('-ct', '--cookie_t', type=str)
-    p.add_argument('-cy', '--cookie_y', type=str)
-    p.add_argument('-ce', '--cookie_e', type=str,
+    p.add_argument('-ct', '--cookie_t', type=str,
+                   help='T authentication cookie from yahoo.com')
+    p.add_argument('-cy', '--cookie_y', type=str,
+                   help='Y authentication cookie from yahoo.com')
+    p.add_argument('-ce', '--cookie_e', type=str, default='',
                    help='Additional EuConsent cookie is required in EU')
     p.add_argument('-v', '--verbose', action='store_true')
 
@@ -604,16 +602,7 @@ if __name__ == "__main__":
     if not args.verbose:
         log_stdout_handler.setLevel(logging.INFO)
 
-    if not args.cookie_e:
-        args.cookie_e = ''
-
     yga = YahooGroupsAPI(args.group, args.cookie_t, args.cookie_y, args.cookie_e)
-    if args.username:
-        password = args.password or getpass.getpass()
-        print "logging in..."
-        if not yga.login(args.username, password):
-            print "Login failed"
-            sys.exit(1)
 
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
             args.polls or args.attachments or args.members):

@@ -6,7 +6,6 @@ import requests
 
 class YahooGroupsAPI:
     BASE_URI = "https://groups.yahoo.com/api"
-    LOGIN_URI = "https://login.yahoo.com/"
 
     API_VERSIONS = {
             'HackGroupInfo': 'v1',  # In reality, this will get the root endpoint
@@ -44,15 +43,6 @@ class YahooGroupsAPI:
         if name not in self.API_VERSIONS:
             raise AttributeError()
         return functools.partial(self.get_json, name)
-
-    def login(self, user, password):
-        data = {'login': user, 'passwd': password}
-        self.s.post(self.LOGIN_URI, data=data, timeout=10)
-
-        # On success, 302 redirect setting lots of cookies to 200 /config/verify
-        # On fail, 302 redirect setting 1 cookie to 200 /m
-        # For now check that we 'enough' cookies set.
-        return len(self.s.cookies) > 2
 
     def get_file(self, url):
         r = self.s.get(url, verify=False)  # Needed to disable SSL verifying
