@@ -1,19 +1,18 @@
-import requests
-from HTMLParser import HTMLParser
-import json
-import logging
 import functools
+import logging
 import time
+import requests
+
 
 class YahooGroupsAPI:
-    BASE_URI="https://groups.yahoo.com/api"
-    LOGIN_URI="https://login.yahoo.com/"
+    BASE_URI = "https://groups.yahoo.com/api"
+    LOGIN_URI = "https://login.yahoo.com/"
 
-    API_VERSIONS={
-            'HackGroupInfo': 'v1', #  In reality, this will get the root endpoint
+    API_VERSIONS = {
+            'HackGroupInfo': 'v1',  # In reality, this will get the root endpoint
             'messages': 'v1',
             'files': 'v2',
-            'albums': 'v2', #  v3 is available, but changes where photos are located in json
+            'albums': 'v2',         # v3 is available, but changes where photos are located in json
             'database': 'v1',
             'links': 'v1',
             'statistics': 'v1',
@@ -32,7 +31,7 @@ class YahooGroupsAPI:
         jar = requests.cookies.RequestsCookieJar()
         jar.set('T', cookie_t)
         jar.set('Y', cookie_y)
-        jar.set('EuConsent', cookie_euconsent);
+        jar.set('EuConsent', cookie_euconsent)
         self.s.cookies = jar
         self.s.headers = {'Referer': self.BASE_URI}
 
@@ -48,7 +47,7 @@ class YahooGroupsAPI:
 
     def login(self, user, password):
         data = {'login': user, 'passwd': password}
-        r = self.s.post(self.LOGIN_URI, data=data, timeout=10)
+        self.s.post(self.LOGIN_URI, data=data, timeout=10)
 
         # On success, 302 redirect setting lots of cookies to 200 /config/verify
         # On fail, 302 redirect setting 1 cookie to 200 /m
@@ -56,13 +55,12 @@ class YahooGroupsAPI:
         return len(self.s.cookies) > 2
 
     def get_file(self, url):
-        r = self.s.get(url, verify=False) # Needed to disable SSL verifying
+        r = self.s.get(url, verify=False)  # Needed to disable SSL verifying
         return r.content
 
     def get_file_nostatus(self, url):
         r = self.s.get(url)
         return r.content
-
 
     def download_file(self, url, f, **args):
         retries = 5
@@ -99,4 +97,3 @@ class YahooGroupsAPI:
             self.logger.debug("Exception raised on uri: %s", r.request.url)
             self.logger.debug(r.content)
             raise e
-
