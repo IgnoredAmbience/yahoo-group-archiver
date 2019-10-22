@@ -2,18 +2,20 @@ yahoo-group-archiver
 ====================
 
 **Note:** Yahoo now have a ["Get My Data" tool](https://groups.yahoo.com/neo/getmydata)
-available, which may provide an alternative to this tool, although it was not working at the time
-of writing.
+available, which may provide an alternative to this tool, although the content it provides is not
+known at the time of writing.
 
 This tool archives a Yahoo group using the non-public API used by the Yahoo Groups website UI.
 
 Features:
 * Saves full email content
-* Fetches email attachments and recombines with email
 * Downloads attachments as separate files
 * Fetch all files
 * Fetch all photos
 * Fetch all database tables
+* Fetch all links
+* Fetch all events in the calendar
+* Fetch all polls
 
 Requirements:
 * Python 2.7
@@ -22,10 +24,8 @@ Requirements:
 Usage:
 ```bash
 pip install requests
-./yahoo.py -u "<username>" -ct "<T_cookie>" -cy "<Y_cookie>" "<groupid>"
+./yahoo.py -ct "<T_cookie>" -cy "<Y_cookie>" "<groupid>"
 ```
-
-Where <username> is your Yahoo username or full login email address.
 
 You will need to get the `T` and `Y` cookie values from an authenticated
 browser session.
