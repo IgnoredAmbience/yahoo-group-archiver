@@ -18,6 +18,7 @@ class YahooGroupsAPI:
             'statistics': 'v1',
             'polls': 'v1',
             'attachments': 'v1',
+            'members': 'v1'
             }
 
     s = None

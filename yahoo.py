@@ -12,7 +12,7 @@ import sys
 import requests
 import time
 import datetime
-
+import math
 
 # number of seconds to wait before trying again
 HOLDOFF=10
@@ -479,6 +479,32 @@ def archive_polls(yga):
             f.write(json.dumps(pollInfo, indent=4))
         n += 1
 
+def archive_members(yga):
+    for i in range(TRIES):
+        try:
+            confirmed_json = yga.members('confirmed')
+            break
+        except requests.exceptions.HTTPError as err:
+            confirmed_json = None
+            if err.response.status_code == 403 or err.response.status_code == 401:
+                # 401 or 403 error means Permission Denied. Retrying won't help.
+                print "Permission denied to access members."
+                return
+            print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
+            time.sleep(HOLDOFF)
+    n_members = confirmed_json['total']
+    # we can dump 100 member records at a time
+    all_members = []
+    for i in range(int(math.ceil(n_members))/100 + 1):
+        confirmed_json = yga.members('confirmed', start=100*i, count=100)
+        all_members = all_members + confirmed_json['members']
+        with open('memberinfo_%d.json' % i, 'w') as f:
+            f.write(json.dumps(confirmed_json, indent=4))
+    all_json_data = {"total":n_members,"members":all_members}
+    with open('allmemberinfo.json', 'w') as f:
+        f.write(json.dumps(all_json_data, indent=4))
+    print "Saved members: Expected: %d, Actual: %d" % (n_members, len(all_members))
+
 
 class Mkchdir:
     d = ""
@@ -524,6 +550,8 @@ if __name__ == "__main__":
             help='Only archive polls')
     po.add_argument('-a', '--about', action='store_true',
             help='Only archive general info about the group')
+    po.add_argument('-m', '--members', action='store_true',
+            help='Only archive members')
 
     pe = p.add_argument_group(title='Email Options')
     pe.add_argument('-s', '--no-save', action='store_true',
@@ -546,8 +574,8 @@ if __name__ == "__main__":
             print "Login failed"
             sys.exit(1)
 
-    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or args.polls or args.attachments):
-        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = args.polls = args.attachments = True
+    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or args.polls or args.attachments or args.members):
+        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = args.polls = args.attachments = args.members = True
 
     with Mkchdir(args.group):
         if args.email:
@@ -577,3 +605,6 @@ if __name__ == "__main__":
         if args.attachments:
             with Mkchdir('attachments'):
                 archive_attachments(yga)
+        if args.members:
+            with Mkchdir('members'):
+                archive_members(yga)
