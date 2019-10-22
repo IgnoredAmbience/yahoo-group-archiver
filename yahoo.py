@@ -66,6 +66,9 @@ def archive_email(yga, save=True, html=True):
             except requests.exceptions.ReadTimeout:
                 print "ERROR: Read timeout, retrying"
                 time.sleep(HOLDOFF)
+            except requests.exceptions.HTTPError as err:
+                print "ERROR: Raw grab failed"
+                break
         if html:
 		    print "* Fetching message #%d of %d" % (id,count)
 		    for i in range(TRIES):
@@ -140,10 +143,14 @@ def archive_email(yga, save=True, html=True):
         
 
 def archive_files(yga, subdir=None):
-    if subdir:
-        file_json = yga.files(sfpath=subdir)
-    else:
-        file_json = yga.files()
+    try:
+        if subdir:
+            file_json = yga.files(sfpath=subdir)
+        else:
+            file_json = yga.files()
+    except Exception as e:
+        print "ERROR: Couldn't access Files functionality for this group"
+        return
 
     with open('fileinfo.json', 'w') as f:
         f.write(json.dumps(file_json['dirEntries'], indent=4))
@@ -166,8 +173,13 @@ def archive_files(yga, subdir=None):
                 pathURI = urllib.unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
 
+
 def archive_photos(yga):
-    nb_albums = yga.albums(count=5)['total'] + 1
+    try:
+        nb_albums = yga.albums(count=5)['total'] + 1
+    except Exception as e:
+        print "ERROR: Couldn't access Photos functionality for this group"
+        return
     albums = yga.albums(count=nb_albums)
     n = 0
 
@@ -211,14 +223,14 @@ def archive_db(yga, group):
             break
         except requests.exceptions.HTTPError as err:
             json = None
-            if err.response.status_code == 403:
-                # 403 error means Permission Denied. Retrying won't help.
+            if err.response.status_code == 403 or err.response.status_code == 401:
+                # 401 or 403 error means Permission Denied. Retrying won't help.
                 break
             print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
             time.sleep(HOLDOFF)
 
     if json is None:
-        print "ERROR: Couldn't download databases"
+        print "ERROR: Couldn't access Database functionality for this group"
         return
 
     n = 0
@@ -234,7 +246,11 @@ def archive_db(yga, group):
 
 
 def archive_links(yga):
-    nb_links = yga.links(count=5)['total'] + 1
+    try:
+        nb_links = yga.links(count=5)['total'] + 1
+    except Exception as e:
+        print "ERROR: Couldn't access Links functionality for this group"
+        return
     links = yga.links(count=nb_links)
     n = 0
 
