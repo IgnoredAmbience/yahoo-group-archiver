@@ -538,7 +538,19 @@ class Mkchdir:
         os.chdir('..')
 
 if __name__ == "__main__":
+    # Setup logging
+    log_formatter = logging.Formatter(
+            fmt='%(asctime)s %(msecs)03d %(levelname)s:%(name)s %(message)s',
+            datefmt="%Y-%m-%d %H:%M:%S %Z"
+            )
+    log_stdout_handler = logging.StreamHandler(sys.stdout)
+    log_stdout_handler.setFormatter(log_formatter)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)  # This level gets dropped for stdout once we've got args parsed
+    root_logger.addHandler(log_stdout_handler)
+
     p = argparse.ArgumentParser()
+
     p.add_argument('-us', '--username', type=str)
     p.add_argument('-pa', '--password', type=str,
             help='If no password supplied, will be requested on the console')
@@ -546,6 +558,7 @@ if __name__ == "__main__":
     p.add_argument('-cy', '--cookie_y', type=str)
     p.add_argument('-ce', '--cookie_e', type=str,
             help='Additional EuConsent cookie is required in EU')
+    p.add_argument('-v', '--verbose', action='store_true')
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
@@ -579,13 +592,16 @@ if __name__ == "__main__":
 
     args = p.parse_args()
 
+    if not args.verbose:
+        log_stdout_handler.setLevel(logging.INFO)
+
     if not args.cookie_e:
         args.cookie_e = ''
 
     yga = YahooGroupsAPI(args.group, args.cookie_t, args.cookie_y, args.cookie_e)
     if args.username:
         password = args.password or getpass.getpass()
-        print "logger in..."
+        print "logging in..."
         if not yga.login(args.username, password):
             print "Login failed"
             sys.exit(1)
@@ -594,7 +610,10 @@ if __name__ == "__main__":
         args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = args.polls = args.attachments = args.members = True
 
     with Mkchdir(args.group):
-        logging.basicConfig(filename='archive.log', filemode='a', format='%(asctime)s ,%(msecs)03d %(levelname)s:%(name)s %(message)s', datefmt="%Y-%m-%d %H:%M:%S %Z", level=logging.DEBUG)
+        log_file_handler = logging.FileHandler('archive.log')
+        log_file_handler.setFormatter(log_formatter)
+        root_logger.addHandler(log_file_handler)
+
         if args.email:
             with Mkchdir('email'):
                 archive_email(yga, save=(not args.no_save), html=args.html)

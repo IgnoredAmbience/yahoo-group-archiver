@@ -1,6 +1,7 @@
 import requests
 from HTMLParser import HTMLParser
 import json
+import logging
 import functools
 import time
 
@@ -9,10 +10,10 @@ class YahooGroupsAPI:
     LOGIN_URI="https://login.yahoo.com/"
 
     API_VERSIONS={
-            'HackGroupInfo': 'v1', #In reality, this will get the root endpoint
+            'HackGroupInfo': 'v1', #  In reality, this will get the root endpoint
             'messages': 'v1',
             'files': 'v2',
-            'albums': 'v2', # v3 is available, but changes where photos are located in json
+            'albums': 'v2', #  v3 is available, but changes where photos are located in json
             'database': 'v1',
             'links': 'v1',
             'statistics': 'v1',
@@ -20,6 +21,8 @@ class YahooGroupsAPI:
             'attachments': 'v1',
             'members': 'v1'
             }
+
+    logger = logging.getLogger(name="YahooGroupsAPI")
 
     s = None
 
@@ -66,7 +69,7 @@ class YahooGroupsAPI:
         while True:
             r = self.s.get(url, stream=True, verify=False, **args)
             if r.status_code == 400 and retries > 0:
-                print "[Got 400 error for %s, will sleep and retry %d times]" % (url, retries)
+                self.logger.info("Got 400 error for %s, will sleep and retry %d times", url, retries)
                 retries -= 1
                 time.sleep(5)
                 continue
@@ -93,7 +96,7 @@ class YahooGroupsAPI:
                 raise requests.exceptions.HTTPError(response=r)
             return r.json()['ygData']
         except Exception as e:
-            print "Exception raised on uri: " + r.request.url
-            print r.content
+            self.logger.debug("Exception raised on uri: %s", r.request.url)
+            self.logger.debug(r.content)
             raise e
 
