@@ -16,7 +16,8 @@ class YahooGroupsAPI:
             'database': 'v1',
             'links': 'v1',
             'statistics': 'v1',
-            'polls': 'v1'
+            'polls': 'v1',
+            'attachments': 'v1',
             }
 
     s = None
