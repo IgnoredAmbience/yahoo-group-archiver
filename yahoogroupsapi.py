@@ -51,7 +51,7 @@ class YahooGroupsAPI:
         return len(self.s.cookies) > 2
 
     def get_file(self, url):
-        r = self.s.get(url)
+        r = self.s.get(url, verify=False) # Needed to disable SSL verifying
         return r.content
 
     def get_file_nostatus(self, url):
@@ -62,7 +62,7 @@ class YahooGroupsAPI:
     def download_file(self, url, f, **args):
         retries = 5
         while True:
-            r = self.s.get(url, stream=True, **args)
+            r = self.s.get(url, stream=True, verify=False, **args)
             if r.status_code == 400 and retries > 0:
                 print "[Got 400 error for %s, will sleep and retry %d times]" % (url, retries)
                 retries -= 1
