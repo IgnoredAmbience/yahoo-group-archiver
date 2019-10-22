@@ -19,11 +19,10 @@ Features:
 
 Requirements:
 * Python 2.7
-* Requests library
 
 Usage:
 ```bash
-pip install requests
+pip install -r requirements.txt
 ./yahoo.py -ct "<T_cookie>" -cy "<Y_cookie>" "<groupid>"
 ```
 
@@ -34,8 +33,8 @@ In Google Chrome these steps are required:
 2. Click the ⓘ (cicled letter i) in the address bar.
 3. Click "Cookies".
 4. On the Allowed tab select "Yahoo.com" followed by "Cookies" in the tree listing.
-5. Select the T cookie and copy the Content field in place of <T_cookie> in the above command line.
-6. Select the Y cookie and copy the Content field in place of <Y_cookie> in the above command line.
+5. Select the T cookie and copy the Content field in place of `<T_cookie>` in the above command line.
+6. Select the Y cookie and copy the Content field in place of `<Y_cookie>` in the above command line.
 
 Note: the string you paste _must_ be surrounded by quotes.
 
