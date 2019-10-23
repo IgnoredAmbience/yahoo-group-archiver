@@ -295,7 +295,7 @@ def archive_photos(yga):
                             time.sleep(HOLDOFF)
 
 
-def archive_db(yga, group):
+def archive_db(yga):
     logger = logging.getLogger(name="archive_db")
     for i in range(TRIES):
         try:
@@ -320,7 +320,7 @@ def archive_db(yga, group):
         logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
 
         name = basename(table['name']) + '.csv'
-        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (group, table['tableId'])
+        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
         with open(name, 'w') as f:
             yga.download_file(uri, f)
 
@@ -639,7 +639,7 @@ if __name__ == "__main__":
                 archive_photos(yga)
         if args.database:
             with Mkchdir('databases'):
-                archive_db(yga, args.group)
+                archive_db(yga)
         if args.links:
             with Mkchdir('links'):
                 archive_links(yga)
