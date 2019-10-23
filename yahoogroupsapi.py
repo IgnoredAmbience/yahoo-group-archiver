@@ -1,9 +1,20 @@
+from contextlib import contextmanager
 import functools
 import logging
 import time
 
-from warcio.capture_http import capture_http
-import requests
+try:
+    from warcio.capture_http import capture_http
+    warcio_failed = False
+except ImportError as e:
+    warcio_failed = e
+
+import requests  # Must be imported after capture_http
+
+
+@contextmanager
+def dummy_contextmanager(*kargs, **kwargs):
+    yield
 
 
 class YahooGroupsAPI:
@@ -26,6 +37,7 @@ class YahooGroupsAPI:
 
     s = None
     ww = None
+    http_context = dummy_contextmanager
 
     def __init__(self, group, cookie_t, cookie_y, cookie_euconsent):
         self.s = requests.Session()
@@ -36,6 +48,13 @@ class YahooGroupsAPI:
         jar.set('EuConsent', cookie_euconsent)
         self.s.cookies = jar
         self.s.headers = {'Referer': self.BASE_URI}
+
+    def set_warc_writer(self, ww):
+        if ww is not None and warcio_failed:
+            self.logger.fatal("Attempting to log to warc, but warcio failed to import.")
+            raise warcio_failed
+        self.ww = ww
+        self.http_context = capture_http
 
     def __getattr__(self, name):
         """
@@ -48,17 +67,17 @@ class YahooGroupsAPI:
         return functools.partial(self.get_json, name)
 
     def get_file(self, url):
-        with capture_http(self.ww):
+        with self.http_context(self.ww):
             r = self.s.get(url, verify=False)  # Needed to disable SSL verifying
             return r.content
 
     def get_file_nostatus(self, url):
-        with capture_http(self.ww):
+        with self.http_context(self.ww):
             r = self.s.get(url)
             return r.content
 
     def download_file(self, url, f, **args):
-        with capture_http(self.ww):
+        with self.http_context(self.ww):
             retries = 5
             while True:
                 r = self.s.get(url, stream=True, verify=False, **args)
@@ -74,7 +93,7 @@ class YahooGroupsAPI:
 
     def get_json(self, target, *parts, **opts):
         """Get an arbitrary endpoint and parse as json"""
-        with capture_http(self.ww):
+        with self.http_context(self.ww):
             uri_parts = [self.BASE_URI, self.API_VERSIONS[target], 'groups', self.group, target]
             uri_parts = uri_parts + map(str, parts)
 

@@ -12,8 +12,7 @@ import datetime
 import math
 import logging
 
-from warcio import WARCWriter
-import requests
+import requests.exceptions
 
 # number of seconds to wait before trying again
 HOLDOFF = 10
@@ -596,6 +595,10 @@ if __name__ == "__main__":
     pe.add_argument('--html', action='store_false',
                     help="Don't save the non-raw version of message")
 
+    pf = p.add_argument_group(title='Output Options')
+    pf.add_argument('-w', '--warc', action='store_true',
+                    help='Output WARC file of raw network requests. [Requires warcio package installed]')
+
     p.add_argument('group', type=str)
 
     args = p.parse_args()
@@ -615,9 +618,15 @@ if __name__ == "__main__":
         log_file_handler.setFormatter(log_formatter)
         root_logger.addHandler(log_file_handler)
 
-        fhwarc = open('data.warc.gz', 'wb')
-        warc_writer = WARCWriter(fhwarc)
-        yga.ww = warc_writer
+        if args.warc:
+            try:
+                from warcio import WARCWriter
+            except ImportError:
+                logging.error('WARC output requires the warcio package to be installed.')
+                exit(1)
+            fhwarc = open('data.warc.gz', 'wb')
+            warc_writer = WARCWriter(fhwarc)
+            yga.set_warc_writer(warc_writer)
 
         if args.email:
             with Mkchdir('email'):
@@ -650,4 +659,5 @@ if __name__ == "__main__":
             with Mkchdir('members'):
                 archive_members(yga)
 
-        fhwarc.close()
+        if args.warc:
+            fhwarc.close()
