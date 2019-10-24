@@ -61,7 +61,7 @@ def archive_email(yga, save=True, html=True):
     for message in msg_json['messages']:
         id = message['messageId']
 
-        logger.info("Fetching raw message #%d of %d", id, count)
+        logger.info("Fetching raw  message #%d of %d", id, count)
         for i in range(TRIES):
             try:
                 raw_json = yga.messages(id, 'raw')
@@ -73,7 +73,7 @@ def archive_email(yga, save=True, html=True):
                 logger.error("Raw grab failed for message %d of %d", id, count)
                 break
         if html:
-            logger.info("* Fetching html message #%d of %d", id, count)
+            logger.info("Fetching html message #%d of %d *", id, count)
             for i in range(TRIES):
                 try:
                     html_json = yga.messages(id)
