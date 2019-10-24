@@ -2,6 +2,9 @@ from contextlib import contextmanager
 import functools
 import logging
 import time
+import os
+
+VERIFY_HTTPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yahoogroups_cert_chain.pem')
 
 try:
     from warcio.capture_http import capture_http
@@ -68,7 +71,7 @@ class YahooGroupsAPI:
         with self.http_context(self.ww):
             retries = 5
             while True:
-                r = self.s.get(url, stream=True, verify=False, **args)
+                r = self.s.get(url, stream=True, verify=VERIFY_HTTPS, **args)
                 if r.status_code == 400 and retries > 0:
                     self.logger.info("Got 400 error for %s, will sleep and retry %d times", url, retries)
                     retries -= 1
@@ -94,7 +97,7 @@ class YahooGroupsAPI:
 
             uri = "/".join(uri_parts)
 
-            r = self.s.get(uri, params=opts, allow_redirects=False, timeout=15)
+            r = self.s.get(uri, params=opts, verify=VERIFY_HTTPS, allow_redirects=False, timeout=15)
             try:
                 r.raise_for_status()
                 if r.status_code != 200:
