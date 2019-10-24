@@ -625,7 +625,7 @@ if __name__ == "__main__":
             except ImportError:
                 logging.error('WARC output requires the warcio package to be installed.')
                 exit(1)
-            fhwarc = open('data.warc.gz', 'wb')
+            fhwarc = open('data.warc.gz', 'ab')
             warc_writer = WARCWriter(fhwarc)
             yga.set_warc_writer(warc_writer)
 
