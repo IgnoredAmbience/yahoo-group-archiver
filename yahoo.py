@@ -331,7 +331,15 @@ def archive_db(yga):
 def archive_links(yga, subdir=''):
     logger = logging.getLogger(name="archive_links")
 
-    links = yga.links(linkdir=subdir)
+    try:
+        links = yga.links(linkdir=subdir)
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            logger.warn("User doesn't have permission to access Links in this group.")
+            return
+        else:
+            raise e
+
     with open('links.json', 'w') as f:
         f.write(json.dumps(links, indent=4))
         logger.info("Written %d links from %s folder", links['numLink'], subdir)
