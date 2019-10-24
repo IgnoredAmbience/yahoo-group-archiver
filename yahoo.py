@@ -57,7 +57,7 @@ def archive_email(yga, save=True, html=True):
     try:
         msg_json = yga.messages()
     except requests.exceptions.HTTPError as err:
-        logger.error("Couldn't download message; %s", err.message)
+        logger.error("User doesn't have permission to access Messages in this group", err.message)
         return
 
     count = msg_json['totalRecords']
