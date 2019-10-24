@@ -96,53 +96,8 @@ def archive_email(yga, save=True, html=True):
             if 'attachments' not in message:
                 logger.warning("Yahoo says this message (%d of %d) has attachments, but I can't find any!", id, count)
             else:
-                atts = {}
-                for attach in message['attachments']:
-                    logger.info("Fetching attachment '%s'", attach['filename'])
-                    if 'link' in attach:
-                        # try and download the attachment
-                        # (sometimes yahoo doesn't keep them)
-                        for i in range(TRIES):
-                            try:
-                                atts[attach['filename']] = yga.download_file(attach['link'])
-                                break
-                            except requests.exceptions.HTTPError as err:
-                                logger.error("Can't download attachment, try %d: %s", i, err)
-                                time.sleep(HOLDOFF)
-
-                    elif 'photoInfo' in attach:
-                        # keep retrying until we find the largest image size we can download
-                        # (sometimes yahoo doesn't keep the originals)
-                        exclude = []
-                        ok = False
-                        while not ok:
-                            # find best photoinfo (largest size)
-                            photoinfo = get_best_photoinfo(attach['photoInfo'], exclude)
-
-                            if photoinfo is None:
-                                logger.error("Can't find a viable copy of this photo")
-                                break
-
-                            # try and download it
-                            for i in range(TRIES):
-                                try:
-                                    atts[attach['filename']] = yga.download_file(photoinfo['displayURL'])
-                                    ok = True
-                                    break
-                                except requests.exceptions.HTTPError as err:
-                                    # yahoo says no. exclude this size and try for another.
-                                    logger.error("Can't download '%s' variant, try %d: %s", photoinfo['photoType'], i, err)
-                                    time.sleep(HOLDOFF)
-                                    # exclude.append(photoinfo['photoType'])
-
-                        # if we failed, try the next attachment
-                        if not ok:
-                            continue
-
-                        if save:
-                            fname = "%s-%s" % (id, basename(attach['filename']))
-                            with open(fname, 'wb') as f:
-                                f.write(atts[attach['filename']])
+                with Mkchdir("%d_attachments" % id):
+                    process_single_attachment(yga, message['attachments'])
 
         with open("%s_raw.json" % (id,), 'wb') as f:
             json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
@@ -154,7 +109,7 @@ def archive_email(yga, save=True, html=True):
 
 def process_single_attachment(yga, attach):
     logger = logging.getLogger(name="process_single_attachment")
-    for frec in attach['files']:
+    for frec in attach:
         logger.info("Fetching attachment '%s'", frec['filename'])
         fname = "%s-%s" % (frec['fileId'], basename(frec['filename']))
         with open(fname, 'wb') as f:
@@ -183,6 +138,7 @@ def process_single_attachment(yga, attach):
                     # try and download it
                     try:
                         yga.download_file(photoinfo['displayURL'], f=f)
+                        ok = True
                     except requests.exceptions.HTTPError as err:
                         # yahoo says no. exclude this size and try for another.
                         logger.error("ERROR downloading '%s' variant %s: %s",photoinfo['displayURL'], photoinfo['photoType'], err)
@@ -248,7 +204,7 @@ def archive_attachments(yga):
                 continue
             with open('attachmentinfo.json', 'wb') as f:
                 json.dump(a_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-                process_single_attachment(yga, a_json)
+                process_single_attachment(yga, a_json['files'])
 
 
 def archive_photos(yga):
