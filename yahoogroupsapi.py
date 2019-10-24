@@ -87,7 +87,7 @@ class YahooGroupsAPI:
         """Get an arbitrary endpoint and parse as json"""
         with self.http_context(self.ww):
             uri_parts = [self.BASE_URI, self.API_VERSIONS[target], 'groups', self.group, target]
-            uri_parts = uri_parts + map(str, parts)
+            uri_parts = uri_parts + list(map(str, parts))
 
             if target == 'HackGroupInfo':
                 uri_parts[4] = ''
