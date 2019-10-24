@@ -328,31 +328,21 @@ def archive_db(yga):
             yga.download_file(uri, f)
 
 
-def archive_links(yga):
+def archive_links(yga, subdir=''):
     logger = logging.getLogger(name="archive_links")
-    try:
-        nb_links = yga.links(count=5)['total'] + 1
-    except Exception:
-        logger.error("Couldn't access Links functionality for this group")
-        return
-    links = yga.links(count=nb_links)
-    n = 0
 
+    links = yga.links(linkdir=subdir)
+    with open('links.json', 'w') as f:
+        f.write(json.dumps(links, indent=4))
+        logger.info("Written %d links from %s folder", links['numLink'], subdir)
+
+    n = 0
     for a in links['dirs']:
         n += 1
-        name = hp.unescape(a['folder']).replace("/", "_")
-        logger.info("Fetching links folder '%s' (%d/%d)", name, n, links['numDir'])
+        logger.info("Fetching links folder '%s' (%d/%d)", a['folder'], n, links['numDir'])
 
-        with Mkchdir(basename(name).replace('.', '')):
-            child_links = yga.links(linkdir=a['folder'])
-
-            with open('links.json', 'w') as f:
-                f.write(json.dumps(child_links['links'], indent=4))
-                logger.info("Written %d links from folder %s", child_links['numLink'], name)
-
-    with open('links.json', 'w') as f:
-        f.write(json.dumps(links['links'], indent=4))
-        logger.info("Written %d links from root folder", links['numLink'])
+        with Mkchdir(a['folder']):
+            archive_links(yga, "%s/%s" % (subdir, a['folder']))
 
 
 def archive_calendar(yga):
