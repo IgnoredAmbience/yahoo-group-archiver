@@ -149,7 +149,7 @@ class PrepareDirectories(SimpleTask):
         item['warc_file_base'] = '%s-%s-%s'    % (self.warc_prefix, escaped_item_name[:50],      start_time)
 
         #open('%(item_dir)s/%(warc_file_base)s.warc.gz' % item, 'w').close()
-        open('%(item_dir)s/%(warc_file_base)s.defer-urls.txt' % item, 'w').close()
+        #open('%(item_dir)s/%(warc_file_base)s.defer-urls.txt' % item, 'w').close()
 
 
 class MoveFiles(SimpleTask):
@@ -161,13 +161,17 @@ class MoveFiles(SimpleTask):
         if os.path.exists('%(item_dir)s/%(warc_file_base)s.warc' % item):
             raise Exception('Please compile wget with zlib support!')
 
-        os.rename('%(item_dir)s/%(item_name)s/data.warc.gz' % item,
+        print('Move from -> to')
+        print('%(item_dir)s / %(item_value)s / data.warc.gz' % item)
+        print('%(data_dir)s/%(warc_file_base)s.warc.gz' % item)
+
+        os.rename('%(item_dir)s/%(item_value)s/data.warc.gz' % item,
                   '%(data_dir)s/%(warc_file_base)s.warc.gz' % item)
-        os.rename('%(item_dir)s/%(warc_file_base)s.defer-urls.txt' % item,
-                  '%(data_dir)s/%(warc_file_base)s.defer-urls.txt' % item)
+        os.rename('%(item_dir)s/%(item_value)s/archive.log' % item,
+                  '%(data_dir)s/%(warc_file_base)s.log' % item)
 
         shutil.rmtree('%(item_dir)s' % item)
-        item['files']=[ ItemInterpolation('%(data_dir)s/%(warc_file_base)s.defer-urls.txt') ,
+        item['files']=[ ItemInterpolation('%(data_dir)s/%(warc_file_base)s.log') ,
                         ItemInterpolation('%(data_dir)s/%(warc_file_base)s.warc.gz')  ]
 
 def get_hash(filename):
@@ -198,8 +202,9 @@ class YgaArgs(object):
         yga_args = [
             PYTHON,
             '../../../yahoo.py',
-            '-a',
-            '-e'
+             '-a',
+             '-e',
+            '-w'
         ]
 
         item_name = item['item_name']
@@ -278,29 +283,29 @@ pipeline = Pipeline(
             'warc_file_base': ItemValue('warc_file_base'),
         }
     ),
+    MoveFiles(),
     PrepareStatsForTracker(
         defaults={'downloader': downloader, 'version': VERSION},
         file_groups={
             'data': [
-                ItemInterpolation('%(item_dir)s/%(warc_file_base)s.warc.gz')  #TODO ?
+                ItemInterpolation('%(data_dir)s/%(warc_file_base)s.warc.gz')  #TODO ?
             ]
         },
         id_function=stats_id_function,
     ),
-    MoveFiles(),
-#    LimitConcurrent(NumberConfigValue(min=1, max=20, default='20',
-#                                      name='shared:rsync_threads', title='Rsync threads',
-#                                      description='The maximum number of concurrent uploads.'),
-#                    UploadWithTracker('http://%s/%s' % (TRACKER_HOST, TRACKER_ID),
-#                                      downloader=downloader,
-#                                      version=VERSION,
-#                                      files=ItemValue('files'),
-#                                      rsync_target_source_path=ItemInterpolation('%(data_dir)s/'),
-#                                      rsync_extra_args=[
-#                                                         '--recursive',
-#                                                         '--partial',
-#                                                         '--partial-dir', '.rsync-tmp',
-#                                                       ]),),
+    LimitConcurrent(NumberConfigValue(min=1, max=20, default='20',
+                                      name='shared:rsync_threads', title='Rsync threads',
+                                     description='The maximum number of concurrent uploads.'),
+                    UploadWithTracker('http://%s/%s' % (TRACKER_HOST, TRACKER_ID),
+                                      downloader=downloader,
+                                      version=VERSION,
+                                      files=ItemValue('files'),
+                                      rsync_target_source_path=ItemInterpolation('%(data_dir)s/'),
+                                      rsync_extra_args=[
+                                                         '--recursive',
+                                                         '--partial',
+                                                         '--partial-dir', '.rsync-tmp',
+                                                       ]),),
     SendDoneToTracker(
         tracker_url='http://%s/%s' % (TRACKER_HOST, TRACKER_ID),
         stats=ItemValue('stats')
