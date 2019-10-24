@@ -39,14 +39,12 @@ class YahooGroupsAPI:
     ww = None
     http_context = dummy_contextmanager
 
-    def __init__(self, group, cookie_t, cookie_y, cookie_euconsent):
+    def __init__(self, group, cookie_jar=None):
         self.s = requests.Session()
         self.group = group
-        jar = requests.cookies.RequestsCookieJar()
-        jar.set('T', cookie_t)
-        jar.set('Y', cookie_y)
-        jar.set('EuConsent', cookie_euconsent)
-        self.s.cookies = jar
+
+        if cookie_jar:
+            self.s.cookies = cookie_jar
         self.s.headers = {'Referer': self.BASE_URI}
 
     def set_warc_writer(self, ww):

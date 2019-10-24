@@ -38,4 +38,7 @@ In Google Chrome these steps are required:
 
 Note: the string you paste _must_ be surrounded by quotes.
 
+Using the `--cookie-file` (or `-cf`) option allows you to specify a file in which the authentication cookies will be
+loaded and saved in.
+
 Files will be placed into the directory structure groupname/{email,files,photos,databases}

@@ -1,18 +1,20 @@
 #!/usr/bin/env python2
-from yahoogroupsapi import YahooGroupsAPI
-import json
-import urllib
-import os
-from HTMLParser import HTMLParser
-from os.path import basename
 import argparse
+import datetime
+from yahoogroupsapi import YahooGroupsAPI
+
+import json
+import logging
+import math
+import os
+import requests.exceptions
 import sys
 import time
-import datetime
-import math
-import logging
-
-import requests.exceptions
+import urllib
+from cookielib import LWPCookieJar
+from HTMLParser import HTMLParser
+from os.path import basename
+from requests.cookies import RequestsCookieJar, create_cookie
 
 # number of seconds to wait before trying again
 HOLDOFF = 10
@@ -546,6 +548,25 @@ class Mkchdir:
         os.chdir('..')
 
 
+def init_cookie_jar(cookie_file=None, cookie_t=None, cookie_y=None, cookie_euconsent=None):
+    cookie_jar = LWPCookieJar(cookie_file) if cookie_file else RequestsCookieJar()
+
+    if cookie_file and os.path.exists(cookie_file):
+        cookie_jar.load(ignore_discard=True)
+
+    if args.cookie_t:
+        cookie_jar.set_cookie(create_cookie('T', cookie_t))
+    if cookie_y:
+        cookie_jar.set_cookie(create_cookie('Y', cookie_y))
+    if cookie_euconsent:
+        cookie_jar.set_cookie(create_cookie('EuConsent', cookie_euconsent))
+
+    if cookie_file:
+        cookie_jar.save(ignore_discard=True)
+
+    return cookie_jar
+
+
 if __name__ == "__main__":
     # Setup logging
     log_formatter = logging.Formatter(
@@ -560,13 +581,16 @@ if __name__ == "__main__":
 
     p = argparse.ArgumentParser()
 
-    p.add_argument('-ct', '--cookie_t', type=str,
-                   help='T authentication cookie from yahoo.com')
-    p.add_argument('-cy', '--cookie_y', type=str,
-                   help='Y authentication cookie from yahoo.com')
-    p.add_argument('-ce', '--cookie_e', type=str, default='',
-                   help='Additional EuConsent cookie is required in EU')
-    p.add_argument('-v', '--verbose', action='store_true')
+    pa = p.add_argument_group(title='Authentication Options')
+    pa.add_argument('-ct', '--cookie_t', type=str,
+                    help='T authentication cookie from yahoo.com')
+    pa.add_argument('-cy', '--cookie_y', type=str,
+                    help='Y authentication cookie from yahoo.com')
+    pa.add_argument('-ce', '--cookie_e', type=str, default='',
+                    help='Additional EuConsent cookie is required in EU')
+    pa.add_argument('-cf', '--cookie-file', type=str,
+                    help='File to store authentication cookies to. Cookies passed on the command line will overwrite '
+                    'any already in the file.')
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
@@ -600,6 +624,8 @@ if __name__ == "__main__":
     pf.add_argument('-w', '--warc', action='store_true',
                     help='Output WARC file of raw network requests. [Requires warcio package installed]')
 
+    p.add_argument('-v', '--verbose', action='store_true')
+
     p.add_argument('group', type=str)
 
     args = p.parse_args()
@@ -607,7 +633,8 @@ if __name__ == "__main__":
     if not args.verbose:
         log_stdout_handler.setLevel(logging.INFO)
 
-    yga = YahooGroupsAPI(args.group, args.cookie_t, args.cookie_y, args.cookie_e)
+    cookie_jar = init_cookie_jar(args.cookie_file, args.cookie_t, args.cookie_y, args.cookie_e)
+    yga = YahooGroupsAPI(args.group, cookie_jar)
 
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
             args.polls or args.attachments or args.members):

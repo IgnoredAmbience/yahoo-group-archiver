@@ -2,6 +2,7 @@ from yahoogroupsapi import YahooGroupsAPI
 import Cookie
 import pytest
 import responses
+from requests.cookies import RequestsCookieJar
 
 from warcio.archiveiterator import ArchiveIterator
 from warcio.warcwriter import BufferWARCWriter
@@ -13,23 +14,27 @@ def response():
         yield rsps
 
 
-def test_get_json(response):
+@pytest.fixture
+def cookies():
+    cookies = RequestsCookieJar()
+    cookies.set('T', 't_cookie')
+    cookies.set('Y', 'y_cookie')
+    cookies.set('EuConsent', 'eu_cookie')
+    yield cookies
+
+
+def test_get_json(response, cookies):
     response.add(responses.GET, 'https://groups.yahoo.com/api/v2/groups/groupname/files/a/2?param1=c&param2=4',
                  json={'ygData': {'result': 'returned data'}})
 
-    t_cookie = 't_cookie'
-    y_cookie = 'y_cookie'
-    eu_cookie = 'eu_cookie'
-
-    yga = YahooGroupsAPI('groupname', t_cookie, y_cookie, eu_cookie)
+    yga = YahooGroupsAPI('groupname', cookies)
     json = yga.get_json('files', 'a', 2, param1='c', param2=4)
 
     request = response.calls[0].request
-    cookies = Cookie.SimpleCookie()
-    cookies.load(request.headers['Cookie'])
-    assert cookies['T'].value == t_cookie
-    assert cookies['Y'].value == y_cookie
-    assert cookies['EuConsent'].value == eu_cookie
+    request_cookies = Cookie.SimpleCookie()
+    request_cookies.load(request.headers['Cookie'])
+    assert dict(cookies) == {k: v.value for k, v in request_cookies.iteritems()}
+
     assert json == {'result': 'returned data'}
 
 
@@ -38,7 +43,7 @@ def test_warc_enabled():
     # This makes a real request to Yahoo, so might fail.
     url = 'https://groups.yahoo.com/api/v1/groups/test/'
 
-    yga = YahooGroupsAPI('test', '', '', '')
+    yga = YahooGroupsAPI('test')
     writer = BufferWARCWriter(gzip=False)
     yga.set_warc_writer(writer)
     yga.get_json('HackGroupInfo')
