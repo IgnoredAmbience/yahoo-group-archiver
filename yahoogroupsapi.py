@@ -2,6 +2,9 @@ from contextlib import contextmanager
 import functools
 import logging
 import time
+import os
+
+VERIFY_HTTPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yahoogroups_cert_chain.pem')
 
 try:
     from warcio.capture_http import capture_http
@@ -39,14 +42,12 @@ class YahooGroupsAPI:
     ww = None
     http_context = dummy_contextmanager
 
-    def __init__(self, group, cookie_t, cookie_y, cookie_euconsent):
+    def __init__(self, group, cookie_jar=None):
         self.s = requests.Session()
         self.group = group
-        jar = requests.cookies.RequestsCookieJar()
-        jar.set('T', cookie_t)
-        jar.set('Y', cookie_y)
-        jar.set('EuConsent', cookie_euconsent)
-        self.s.cookies = jar
+
+        if cookie_jar:
+            self.s.cookies = cookie_jar
         self.s.headers = {'Referer': self.BASE_URI}
 
     def set_warc_writer(self, ww):
@@ -66,21 +67,11 @@ class YahooGroupsAPI:
             raise AttributeError()
         return functools.partial(self.get_json, name)
 
-    def get_file(self, url):
-        with self.http_context(self.ww):
-            r = self.s.get(url, verify=False)  # Needed to disable SSL verifying
-            return r.content
-
-    def get_file_nostatus(self, url):
-        with self.http_context(self.ww):
-            r = self.s.get(url)
-            return r.content
-
-    def download_file(self, url, f, **args):
+    def download_file(self, url, f=None, **args):
         with self.http_context(self.ww):
             retries = 5
             while True:
-                r = self.s.get(url, stream=True, verify=False, **args)
+                r = self.s.get(url, stream=True, verify=VERIFY_HTTPS, **args)
                 if r.status_code == 400 and retries > 0:
                     self.logger.info("Got 400 error for %s, will sleep and retry %d times", url, retries)
                     retries -= 1
@@ -88,6 +79,10 @@ class YahooGroupsAPI:
                     continue
                 r.raise_for_status()
                 break
+
+            if f is None:
+                return r.content
+
             for chunk in r.iter_content(chunk_size=4096):
                 f.write(chunk)
 
@@ -102,7 +97,7 @@ class YahooGroupsAPI:
 
             uri = "/".join(uri_parts)
 
-            r = self.s.get(uri, params=opts, allow_redirects=False, timeout=15)
+            r = self.s.get(uri, params=opts, verify=VERIFY_HTTPS, allow_redirects=False, timeout=15)
             try:
                 r.raise_for_status()
                 if r.status_code != 200:

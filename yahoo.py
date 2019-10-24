@@ -1,18 +1,20 @@
 #!/usr/bin/env python2
-from yahoogroupsapi import YahooGroupsAPI
-import json
-import urllib
-import os
-from HTMLParser import HTMLParser
-from os.path import basename
 import argparse
+import datetime
+from yahoogroupsapi import YahooGroupsAPI
+
+import json
+import logging
+import math
+import os
+import requests.exceptions
 import sys
 import time
-import datetime
-import math
-import logging
-
-import requests.exceptions
+import urllib
+from cookielib import LWPCookieJar
+from HTMLParser import HTMLParser
+from os.path import basename
+from requests.cookies import RequestsCookieJar, create_cookie
 
 # number of seconds to wait before trying again
 HOLDOFF = 10
@@ -97,7 +99,7 @@ def archive_email(yga, save=True, html=True):
                         # (sometimes yahoo doesn't keep them)
                         for i in range(TRIES):
                             try:
-                                atts[attach['filename']] = yga.get_file(attach['link'])
+                                atts[attach['filename']] = yga.download_file(attach['link'])
                                 break
                             except requests.exceptions.HTTPError as err:
                                 logger.error("Can't download attachment, try %d: %s", i, err)
@@ -119,7 +121,7 @@ def archive_email(yga, save=True, html=True):
                             # try and download it
                             for i in range(TRIES):
                                 try:
-                                    atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
+                                    atts[attach['filename']] = yga.download_file(photoinfo['displayURL'])
                                     ok = True
                                     break
                                 except requests.exceptions.HTTPError as err:
@@ -154,7 +156,7 @@ def process_single_attachment(yga, attach):
             # (sometimes yahoo doesn't keep them)
             for i in range(TRIES):
                 try:
-                    att = yga.get_file(frec['link'])
+                    att = yga.download_file(frec['link'])
                     break
                 except requests.exceptions.HTTPError as err:
                     logger.error("Can't download attachment, try %d: %s", i, err)
@@ -176,7 +178,7 @@ def process_single_attachment(yga, attach):
                 # try and download it
                 for i in range(TRIES):
                     try:
-                        att = yga.get_file(photoinfo['displayURL'])
+                        att = yga.download_file(photoinfo['displayURL'])
                         ok = True
                         break
                     except requests.exceptions.HTTPError as err:
@@ -273,29 +275,32 @@ def archive_photos(yga):
 
         with Mkchdir(basename(name).replace('.', '')):
             photos = yga.albums(a['albumId'])
+            pages = photos['total'] / 100 + 1
             p = 0
 
-            with open('photos.json', 'w') as f:
-                f.write(json.dumps(photos['photos'], indent=4))
+            for page in range(pages):
+                photos = yga.albums(a['albumId'], start=page*100, count=100)
+                with open('photos-%d.json' % page, 'w') as f:
+                    f.write(json.dumps(photos['photos'], indent=4))
 
-            for photo in photos['photos']:
-                p += 1
-                pname = hp.unescape(photo['photoName']).replace("/", "_")
-                logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
+                for photo in photos['photos']:
+                    p += 1
+                    pname = hp.unescape(photo['photoName']).replace("/", "_")
+                    logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
 
-                photoinfo = get_best_photoinfo(photo['photoInfo'])
-                fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
-                with open(fname, 'wb') as f:
-                    for i in range(TRIES):
-                        try:
-                            yga.download_file(photoinfo['displayURL'], f)
-                            break
-                        except requests.exceptions.HTTPError as err:
-                            logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
-                            time.sleep(HOLDOFF)
+                    photoinfo = get_best_photoinfo(photo['photoInfo'])
+                    fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
+                    with open(fname, 'wb') as f:
+                        for i in range(TRIES):
+                            try:
+                                yga.download_file(photoinfo['displayURL'], f)
+                                break
+                            except requests.exceptions.HTTPError as err:
+                                logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
+                                time.sleep(HOLDOFF)
 
 
-def archive_db(yga, group):
+def archive_db(yga):
     logger = logging.getLogger(name="archive_db")
     for i in range(TRIES):
         try:
@@ -320,36 +325,34 @@ def archive_db(yga, group):
         logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
 
         name = basename(table['name']) + '.csv'
-        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (group, table['tableId'])
+        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
         with open(name, 'w') as f:
             yga.download_file(uri, f)
 
 
-def archive_links(yga):
+def archive_links(yga, subdir=''):
     logger = logging.getLogger(name="archive_links")
+
     try:
-        nb_links = yga.links(count=5)['total'] + 1
-    except Exception:
-        logger.error("Couldn't access Links functionality for this group")
-        return
-    links = yga.links(count=nb_links)
-    n = 0
-
-    for a in links['dirs']:
-        n += 1
-        name = hp.unescape(a['folder']).replace("/", "_")
-        logger.info("Fetching links folder '%s' (%d/%d)", name, n, links['numDir'])
-
-        with Mkchdir(basename(name).replace('.', '')):
-            child_links = yga.links(linkdir=a['folder'])
-
-            with open('links.json', 'w') as f:
-                f.write(json.dumps(child_links['links'], indent=4))
-                logger.info("Written %d links from folder %s", child_links['numLink'], name)
+        links = yga.links(linkdir=subdir)
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            logger.warn("User doesn't have permission to access Links in this group.")
+            return
+        else:
+            raise e
 
     with open('links.json', 'w') as f:
-        f.write(json.dumps(links['links'], indent=4))
-        logger.info("Written %d links from root folder", links['numLink'])
+        f.write(json.dumps(links, indent=4))
+        logger.info("Written %d links from %s folder", links['numLink'], subdir)
+
+    n = 0
+    for a in links['dirs']:
+        n += 1
+        logger.info("Fetching links folder '%s' (%d/%d)", a['folder'], n, links['numDir'])
+
+        with Mkchdir(a['folder']):
+            archive_links(yga, "%s/%s" % (subdir, a['folder']))
 
 
 def archive_calendar(yga):
@@ -366,7 +369,7 @@ def archive_calendar(yga):
 
     # We get the wssid
     tmpUri = "%s/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % (api_root, entityId)
-    tmpContent = yga.get_file_nostatus(tmpUri)  # We expect a 403 here
+    tmpContent = yga.download_file(tmpUri)  # We expect a 403 here
     tmpJson = json.loads(tmpContent)['calendarError']
 
     if 'wssid' not in tmpJson:
@@ -386,7 +389,7 @@ def archive_calendar(yga):
         for i in range(TRIES):
             try:
                 logger.info("Trying to get events between %s and %s", jsonStart, jsonEnd)
-                calContentRaw = yga.get_file(calURL)
+                calContentRaw = yga.download_file(calURL)
                 break
             except requests.exceptions.HTTPError as err:
                 logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
@@ -545,6 +548,25 @@ class Mkchdir:
         os.chdir('..')
 
 
+def init_cookie_jar(cookie_file=None, cookie_t=None, cookie_y=None, cookie_euconsent=None):
+    cookie_jar = LWPCookieJar(cookie_file) if cookie_file else RequestsCookieJar()
+
+    if cookie_file and os.path.exists(cookie_file):
+        cookie_jar.load(ignore_discard=True)
+
+    if args.cookie_t:
+        cookie_jar.set_cookie(create_cookie('T', cookie_t))
+    if cookie_y:
+        cookie_jar.set_cookie(create_cookie('Y', cookie_y))
+    if cookie_euconsent:
+        cookie_jar.set_cookie(create_cookie('EuConsent', cookie_euconsent))
+
+    if cookie_file:
+        cookie_jar.save(ignore_discard=True)
+
+    return cookie_jar
+
+
 if __name__ == "__main__":
     # Setup logging
     log_formatter = logging.Formatter(
@@ -559,13 +581,16 @@ if __name__ == "__main__":
 
     p = argparse.ArgumentParser()
 
-    p.add_argument('-ct', '--cookie_t', type=str,
-                   help='T authentication cookie from yahoo.com')
-    p.add_argument('-cy', '--cookie_y', type=str,
-                   help='Y authentication cookie from yahoo.com')
-    p.add_argument('-ce', '--cookie_e', type=str, default='',
-                   help='Additional EuConsent cookie is required in EU')
-    p.add_argument('-v', '--verbose', action='store_true')
+    pa = p.add_argument_group(title='Authentication Options')
+    pa.add_argument('-ct', '--cookie_t', type=str,
+                    help='T authentication cookie from yahoo.com')
+    pa.add_argument('-cy', '--cookie_y', type=str,
+                    help='Y authentication cookie from yahoo.com')
+    pa.add_argument('-ce', '--cookie_e', type=str, default='',
+                    help='Additional EuConsent cookie is required in EU')
+    pa.add_argument('-cf', '--cookie-file', type=str,
+                    help='File to store authentication cookies to. Cookies passed on the command line will overwrite '
+                    'any already in the file.')
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
@@ -599,6 +624,8 @@ if __name__ == "__main__":
     pf.add_argument('-w', '--warc', action='store_true',
                     help='Output WARC file of raw network requests. [Requires warcio package installed]')
 
+    p.add_argument('-v', '--verbose', action='store_true')
+
     p.add_argument('group', type=str)
 
     args = p.parse_args()
@@ -606,7 +633,8 @@ if __name__ == "__main__":
     if not args.verbose:
         log_stdout_handler.setLevel(logging.INFO)
 
-    yga = YahooGroupsAPI(args.group, args.cookie_t, args.cookie_y, args.cookie_e)
+    cookie_jar = init_cookie_jar(args.cookie_file, args.cookie_t, args.cookie_y, args.cookie_e)
+    yga = YahooGroupsAPI(args.group, cookie_jar)
 
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
             args.polls or args.attachments or args.members):
@@ -624,7 +652,7 @@ if __name__ == "__main__":
             except ImportError:
                 logging.error('WARC output requires the warcio package to be installed.')
                 exit(1)
-            fhwarc = open('data.warc.gz', 'wb')
+            fhwarc = open('data.warc.gz', 'ab')
             warc_writer = WARCWriter(fhwarc)
             yga.set_warc_writer(warc_writer)
 
@@ -639,7 +667,7 @@ if __name__ == "__main__":
                 archive_photos(yga)
         if args.database:
             with Mkchdir('databases'):
-                archive_db(yga, args.group)
+                archive_db(yga)
         if args.links:
             with Mkchdir('links'):
                 archive_links(yga)
