@@ -3,6 +3,7 @@ import argparse
 import datetime
 from yahoogroupsapi import YahooGroupsAPI
 
+import codecs
 import json
 import logging
 import math
@@ -11,8 +12,14 @@ import requests.exceptions
 import sys
 import time
 import urllib
-from cookielib import LWPCookieJar
-from HTMLParser import HTMLParser
+if (sys.version_info < (3, 0)):
+    from cookielib import LWPCookieJar
+    from HTMLParser import HTMLParser
+    hp = HTMLParser()
+    html_unescape = hp.unescape
+else:
+    from http.cookiejar import LWPCookieJar
+    from html import unescape as html_unescape
 from os.path import basename
 from requests.cookies import RequestsCookieJar, create_cookie
 
@@ -21,8 +28,6 @@ HOLDOFF = 10
 
 # max tries
 TRIES = 10
-
-hp = HTMLParser()
 
 
 def get_best_photoinfo(photoInfoArr, exclude=[]):
@@ -136,15 +141,15 @@ def archive_email(yga, save=True, html=True):
 
                         if save:
                             fname = "%s-%s" % (id, basename(attach['filename']))
-                            with file(fname, 'wb') as f:
+                            with open(fname, 'wb') as f:
                                 f.write(atts[attach['filename']])
 
-        with file("%s_raw.json" % (id,), 'w') as f:
-            f.write(json.dumps(raw_json, indent=4))
+        with open("%s_raw.json" % (id,), 'wb') as f:
+            json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
         if html:
-            with file("%s.json" % (id,), 'w') as f:
-                f.write(json.dumps(html_json, indent=4))
+            with open("%s.json" % (id,), 'wb') as f:
+                json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
 
 def process_single_attachment(yga, attach):
@@ -192,7 +197,7 @@ def process_single_attachment(yga, attach):
                 return None
 
         fname = "%s-%s" % (frec['fileId'], basename(frec['filename']))
-        with file(fname, 'wb') as f:
+        with open(fname, 'wb') as f:
             f.write(att)
 
 
@@ -207,8 +212,8 @@ def archive_files(yga, subdir=None):
         logger.error("Couldn't access Files functionality for this group")
         return
 
-    with open('fileinfo.json', 'w') as f:
-        f.write(json.dumps(file_json['dirEntries'], indent=4))
+    with open('fileinfo.json', 'wb') as f:
+        json.dump(file_json['dirEntries'], codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     n = 0
     sz = len(file_json['dirEntries'])
@@ -216,7 +221,7 @@ def archive_files(yga, subdir=None):
         n += 1
         if path['type'] == 0:
             # Regular file
-            name = hp.unescape(path['fileName']).replace("/", "_")
+            name = html_unescape(path['fileName']).replace("/", "_")
             logger.info("Fetching file '%s' (%d/%d)", name, n, sz)
             with open(basename(name), 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
@@ -237,8 +242,8 @@ def archive_attachments(yga):
         logger.error("Couldn't access Attachments functionality for this group")
         return
 
-    with open('allattachmentinfo.json', 'w') as f:
-        f.write(json.dumps(attachments_json['attachments'], indent=4))
+    with open('allattachmentinfo.json', 'wb') as f:
+        json.dump(attachments_json['attachments'], codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     n = 0
     for a in attachments_json['attachments']:
@@ -249,8 +254,8 @@ def archive_attachments(yga):
             except Exception:
                 logger.error("Attachment id %d inaccessible.", a['attachmentId'])
                 continue
-            with open('attachmentinfo.json', 'w') as f:
-                f.write(json.dumps(a_json, indent=4))
+            with open('attachmentinfo.json', 'wb') as f:
+                json.dump(a_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
                 process_single_attachment(yga, a_json)
 
 
@@ -264,28 +269,28 @@ def archive_photos(yga):
     albums = yga.albums(count=nb_albums)
     n = 0
 
-    with open('albums.json', 'w') as f:
-        f.write(json.dumps(albums['albums'], indent=4))
+    with open('albums.json', 'wb') as f:
+        json.dump(albums['albums'], codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     for a in albums['albums']:
         n += 1
-        name = hp.unescape(a['albumName']).replace("/", "_")
+        name = html_unescape(a['albumName']).replace("/", "_")
         # Yahoo has an off-by-one error in the album count...
         logger.info("Fetching album '%s' (%d/%d)", name, n, albums['total'] - 1)
 
         with Mkchdir(basename(name).replace('.', '')):
             photos = yga.albums(a['albumId'])
-            pages = photos['total'] / 100 + 1
+            pages = int(photos['total'] / 100 + 1)
             p = 0
 
             for page in range(pages):
                 photos = yga.albums(a['albumId'], start=page*100, count=100)
-                with open('photos-%d.json' % page, 'w') as f:
-                    f.write(json.dumps(photos['photos'], indent=4))
+                with open('photos-%d.json' % page, 'wb') as f:
+                    json.dump(photos['photos'], codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
                 for photo in photos['photos']:
                     p += 1
-                    pname = hp.unescape(photo['photoName']).replace("/", "_")
+                    pname = html_unescape(photo['photoName']).replace("/", "_")
                     logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
 
                     photoinfo = get_best_photoinfo(photo['photoInfo'])
@@ -326,7 +331,7 @@ def archive_db(yga):
 
         name = basename(table['name']) + '.csv'
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
-        with open(name, 'w') as f:
+        with open(name, 'wb') as f:
             yga.download_file(uri, f)
 
 
@@ -342,8 +347,8 @@ def archive_links(yga, subdir=''):
         else:
             raise e
 
-    with open('links.json', 'w') as f:
-        f.write(json.dumps(links, indent=4))
+    with open('links.json', 'wb') as f:
+        json.dump(links, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
         logger.info("Written %d links from %s folder", links['numLink'], subdir)
 
     n = 0
@@ -408,7 +413,7 @@ def archive_calendar(yga):
             filename = jsonStart + "-" + jsonEnd + ".json"
             with open(filename, 'wb') as f:
                 logger.info("Got %d event(s)", calContent['events']['count'])
-                f.write(json.dumps(calContent, indent=4))
+                json.dump(calContent, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
         archiveDate += datetime.timedelta(days=1000)
 
@@ -418,12 +423,13 @@ def archive_about(yga):
     groupinfo = yga.HackGroupInfo()
 
     with open('about.json', 'wb') as f:
-        f.write(json.dumps(groupinfo, indent=4))
+        json.dump(groupinfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     statistics = yga.statistics()
 
     with open('statistics.json', 'wb') as f:
-        f.write(json.dumps(statistics, indent=4))
+
+        json.dump(statistics, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     # Check if we really have a photo in the group description
     if ('photoInfo' in statistics['groupHomePage'] and statistics['groupHomePage']['photoInfo']):
@@ -507,7 +513,7 @@ def archive_polls(yga):
         fname = '%s-%s.json' % (n, p['surveyId'])
 
         with open(fname, 'wb') as f:
-            f.write(json.dumps(pollInfo, indent=4))
+            json.dump(pollInfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
         n += 1
 
 
@@ -531,11 +537,11 @@ def archive_members(yga):
     for i in range(int(math.ceil(n_members))/100 + 1):
         confirmed_json = yga.members('confirmed', start=100*i, count=100)
         all_members = all_members + confirmed_json['members']
-        with open('memberinfo_%d.json' % i, 'w') as f:
-            f.write(json.dumps(confirmed_json, indent=4))
+        with open('memberinfo_%d.json' % i, 'wb') as f:
+            json.dump(confirmed_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
     all_json_data = {"total": n_members, "members": all_members}
-    with open('allmemberinfo.json', 'w') as f:
-        f.write(json.dumps(all_json_data, indent=4))
+    with open('allmemberinfo.json', 'wb') as f:
+        json.dump(all_json_data, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
     logger.info("Saved members: Expected: %d, Actual: %d", n_members, len(all_members))
 
 
