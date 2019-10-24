@@ -534,7 +534,7 @@ def archive_members(yga):
     n_members = confirmed_json['total']
     # we can dump 100 member records at a time
     all_members = []
-    for i in range(int(math.ceil(n_members))/100 + 1):
+    for i in range(int(math.ceil(n_members)/100 + 1)):
         confirmed_json = yga.members('confirmed', start=100*i, count=100)
         all_members = all_members + confirmed_json['members']
         with open('memberinfo_%d.json' % i, 'wb') as f:
