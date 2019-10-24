@@ -156,49 +156,41 @@ def process_single_attachment(yga, attach):
     logger = logging.getLogger(name="process_single_attachment")
     for frec in attach['files']:
         logger.info("Fetching attachment '%s'", frec['filename'])
-        if 'link' in frec:
+        fname = "%s-%s" % (frec['fileId'], basename(frec['filename']))
+        with open(fname, 'wb') as f:
+            if 'link' in frec:
             # try and download the attachment
             # (sometimes yahoo doesn't keep them)
-            for i in range(TRIES):
                 try:
-                    att = yga.download_file(frec['link'])
-                    break
+                    yga.download_file(frec['link'], f=f)
                 except requests.exceptions.HTTPError as err:
-                    logger.error("Can't download attachment, try %d: %s", i, err)
-                    time.sleep(HOLDOFF)
+                    logger.error("ERROR downloading attachment '%s': %s", frec['link'], err)
+                continue
 
-        elif 'photoInfo' in frec:
-            # keep retrying until we find the largest image size we can download
-            # (sometimes yahoo doesn't keep the originals)
-            exclude = []
-            ok = False
-            while not ok:
-                # find best photoinfo (largest size)
-                photoinfo = get_best_photoinfo(frec['photoInfo'], exclude)
+            elif 'photoInfo' in frec:
+                # keep retrying until we find the largest image size we can download
+                # (sometimes yahoo doesn't keep the originals)
+                exclude = []
+                ok = False
+                while not ok:
+                    # find best photoinfo (largest size)
+                    photoinfo = get_best_photoinfo(frec['photoInfo'], exclude)
 
-                if photoinfo is None:
-                    logger.error("Can't find a viable copy of this photo")
-                    break
-
-                # try and download it
-                for i in range(TRIES):
-                    try:
-                        att = yga.download_file(photoinfo['displayURL'])
-                        ok = True
+                    if photoinfo is None:
+                        logger.error("Can't find a viable copy of this photo")
                         break
+
+                    # try and download it
+                    try:
+                        yga.download_file(photoinfo['displayURL'], f=f)
                     except requests.exceptions.HTTPError as err:
                         # yahoo says no. exclude this size and try for another.
-                        logger.error("ERROR downloading '%s' variant, try %d: %s", photoinfo['photoType'], i, err)
-                        time.sleep(HOLDOFF)
+                        logger.error("ERROR downloading '%s' variant %s: %s",photoinfo['displayURL'], photoinfo['photoType'], err)
                         # exclude.append(photoinfo['photoType'])
 
             # if we failed, try the next attachment
             if not ok:
-                return None
-
-        fname = "%s-%s" % (frec['fileId'], basename(frec['filename']))
-        with open(fname, 'wb') as f:
-            f.write(att)
+                continue
 
 
 def archive_files(yga, subdir=None):
