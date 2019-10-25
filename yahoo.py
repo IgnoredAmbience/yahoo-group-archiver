@@ -78,9 +78,9 @@ def archive_messages_metadata(yga):
     return message_ids
 
 
-def archive_message_content(yga, id):
+def archive_message_content(yga, id, total=1):
     logger = logging.getLogger('archive_message_content')
-    logger.info("Fetching raw message #%d", id)
+    logger.info("Fetching  raw message id: %d (of %d)", id, total)
     for i in range(TRIES):
         try:
             raw_json = yga.messages(id, 'raw')
@@ -94,7 +94,7 @@ def archive_message_content(yga, id):
             logger.exception("Raw grab failed for message %d", id)
             break
 
-    logger.info("Fetching html message #%d", id)
+    logger.info("Fetching html message id: %d (of %d)", id, total)
     for i in range(TRIES):
         try:
             html_json = yga.messages(id)
@@ -128,7 +128,7 @@ def archive_email(yga, message_subset=None):
 
     for id in message_subset:
         try:
-            archive_message_content(yga, id)
+            archive_message_content(yga, id, max(len(message_subset), message_subset[-1]))
         except Exception:
             logger.exception("Failed to get message id: %d", id)
             continue
