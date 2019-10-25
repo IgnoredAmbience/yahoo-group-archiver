@@ -15,7 +15,9 @@ import sys
 import time
 import unicodedata
 from os.path import basename
+from collections import OrderedDict
 from requests.cookies import RequestsCookieJar, create_cookie
+
 
 if (sys.version_info < (3, 0)):
     from cookielib import LWPCookieJar
@@ -36,6 +38,12 @@ HOLDOFF = 10
 # max tries
 TRIES = 10
 
+# WARC metadata params
+
+WARC_META_PARAMS = OrderedDict([('software', 'yahoo-group-archiver'),
+                                ('version','20191025-1'),
+                                ('format', 'WARC File Format 1.0'),
+                               ])
 
 def get_best_photoinfo(photoInfoArr, exclude=[]):
     logger = logging.getLogger(name="get_best_photoinfo")
@@ -689,6 +697,8 @@ if __name__ == "__main__":
                 exit(1)
             fhwarc = open('data.warc.gz', 'ab')
             warc_writer = WARCWriter(fhwarc)
+            warcmeta = warc_writer.create_warcinfo_record(fhwarc.name, WARC_META_PARAMS)
+            warc_writer.write_record(warcmeta)
             yga.set_warc_writer(warc_writer)
 
         if args.email:
