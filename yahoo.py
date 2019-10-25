@@ -14,11 +14,13 @@ import time
 import urllib
 if (sys.version_info < (3, 0)):
     from cookielib import LWPCookieJar
+    from urllib import unquote
     from HTMLParser import HTMLParser
     hp = HTMLParser()
     html_unescape = hp.unescape
 else:
     from http.cookiejar import LWPCookieJar
+    from urllib.parse import unquote
     from html import unescape as html_unescape
 from os.path import basename
 from requests.cookies import RequestsCookieJar, create_cookie
@@ -203,7 +205,7 @@ def archive_files(yga, subdir=None):
             # Directory
             logger.info("Fetching directory '%s' (%d/%d)", path['fileName'], n, sz)
             with Mkchdir(basename(path['fileName']).replace('.', '')):
-                pathURI = urllib.unquote(path['pathURI'])
+                pathURI = unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
 
 
