@@ -1,4 +1,4 @@
 requests
 warcio
-tornado
-seesaw
+Tornado>=4.0,<4.99999.99999
+seesaw==0.10.3
