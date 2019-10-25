@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import unicode_literals
 from yahoogroupsapi import YahooGroupsAPI
 
 import argparse
@@ -8,9 +9,11 @@ import json
 import logging
 import math
 import os
+import re
 import requests.exceptions
 import sys
 import time
+import unicodedata
 from os.path import basename
 from requests.cookies import RequestsCookieJar, create_cookie
 
@@ -20,10 +23,12 @@ if (sys.version_info < (3, 0)):
     from HTMLParser import HTMLParser
     hp = HTMLParser()
     html_unescape = hp.unescape
+    text = unicode  # noqa: F821
 else:
     from http.cookiejar import LWPCookieJar
     from urllib.parse import unquote
     from html import unescape as html_unescape
+    text = str
 
 # number of seconds to wait before trying again
 HOLDOFF = 10
@@ -139,8 +144,8 @@ def process_single_attachment(yga, attach):
     logger = logging.getLogger(name="process_single_attachment")
     for frec in attach:
         logger.info("Fetching attachment '%s'", frec['filename'])
-        fname = "%s-%s" % (frec['fileId'], basename(frec['filename']))
-        with open(fname, 'wb') as f:
+        fname = "%s-%s" % (frec['fileId'], frec['filename'])
+        with open(sanitise_file_name(fname), 'wb') as f:
             if 'link' in frec:
                 # try and download the attachment
                 # (sometimes yahoo doesn't keep them)
@@ -198,15 +203,16 @@ def archive_files(yga, subdir=None):
         n += 1
         if path['type'] == 0:
             # Regular file
-            name = html_unescape(path['fileName']).replace("/", "_")
+            name = html_unescape(path['fileName'])
             logger.info("Fetching file '%s' (%d/%d)", name, n, sz)
-            with open(basename(name), 'wb') as f:
+            with open(sanitise_file_name(name), 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
 
         elif path['type'] == 1:
             # Directory
-            logger.info("Fetching directory '%s' (%d/%d)", path['fileName'], n, sz)
-            with Mkchdir(basename(path['fileName']).replace('.', '')):
+            name = html_unescape(path['fileName'])
+            logger.info("Fetching directory '%s' (%d/%d)", name, n, sz)
+            with Mkchdir(name):
                 pathURI = unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
 
@@ -225,7 +231,7 @@ def archive_attachments(yga):
     n = 0
     for a in attachments_json['attachments']:
         n += 1
-        with Mkchdir(str(a['attachmentId'])):
+        with Mkchdir(a['attachmentId']):
             try:
                 a_json = yga.attachments(a['attachmentId'])
             except Exception:
@@ -251,11 +257,13 @@ def archive_photos(yga):
 
     for a in albums['albums']:
         n += 1
-        name = html_unescape(a['albumName']).replace("/", "_")
-        # Yahoo has an off-by-one error in the album count...
-        logger.info("Fetching album '%s' (%d/%d)", name, n, albums['total'] - 1)
+        name = html_unescape(a['albumName'])
+        # Yahoo sometimes has an off-by-one error in the album count...
+        logger.info("Fetching album '%s' (%d/%d)", name, n, albums['total'])
 
-        with Mkchdir(basename(name).replace('.', '')):
+        folder = "%d-%s" % (a['albumId'], name)
+
+        with Mkchdir(folder):
             photos = yga.albums(a['albumId'])
             pages = int(photos['total'] / 100 + 1)
             p = 0
@@ -267,12 +275,12 @@ def archive_photos(yga):
 
                 for photo in photos['photos']:
                     p += 1
-                    pname = html_unescape(photo['photoName']).replace("/", "_")
+                    pname = html_unescape(photo['photoName'])
                     logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
 
                     photoinfo = get_best_photoinfo(photo['photoInfo'])
-                    fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
-                    with open(fname, 'wb') as f:
+                    fname = "%d-%s.jpg" % (photo['photoId'], pname)
+                    with open(sanitise_file_name(fname), 'wb') as f:
                         for i in range(TRIES):
                             try:
                                 yga.download_file(photoinfo['displayURL'], f)
@@ -306,9 +314,9 @@ def archive_db(yga):
         n += 1
         logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
 
-        name = basename(table['name']) + '.csv'
+        name = table['name'] + '.csv'
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
-        with open(name, 'wb') as f:
+        with open(sanitise_file_name(name), 'wb') as f:
             yga.download_file(uri, f)
 
 
@@ -420,7 +428,7 @@ def archive_about(yga):
             logger.info("Downloading the photo in group description as %s", fname)
             for i in range(TRIES):
                 try:
-                    with open(fname, 'wb') as f:
+                    with open(sanitise_file_name(fname), 'wb') as f:
                         yga.download_file(photoinfo['displayURL'], f)
                         break
                 except requests.exceptions.HTTPError as err:
@@ -438,7 +446,7 @@ def archive_about(yga):
             logger.info("Downloading the group cover as %s", fname)
             for i in range(TRIES):
                 try:
-                    with open(fname, 'wb') as f:
+                    with open(sanitise_file_name(fname), 'wb') as f:
                         yga.download_file(photoinfo['displayURL'], f)
                         break
                 except requests.exceptions.HTTPError as err:
@@ -522,11 +530,31 @@ def archive_members(yga):
     logger.info("Saved members: Expected: %d, Actual: %d", n_members, len(all_members))
 
 
+####
+# Utility Functions
+####
+
+
+def sanitise_file_name(value):
+    """
+    Convert spaces to hyphens.  Remove characters that aren't alphanumerics, underscores, periods or hyphens.
+    Also strip leading and trailing whitespace and periods.
+    """
+    value = text(value)
+    value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
+    value = re.sub(r'[^\w\s.-]', '', value).strip().strip('.').lower()
+    return re.sub(r'[-\s]+', '-', value)
+
+
+def sanitise_folder_name(name):
+    return sanitise_file_name(name).replace('.', '_')
+
+
 class Mkchdir:
     d = ""
 
     def __init__(self, d):
-        self.d = d
+        self.d = sanitise_folder_name(d)
 
     def __enter__(self):
         try:
@@ -537,6 +565,13 @@ class Mkchdir:
 
     def __exit__(self, exc_type, exc_value, traceback):
         os.chdir('..')
+
+
+class CustomFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        if '%f' in datefmt:
+            datefmt = datefmt.replace('%f', '%03d' % record.msecs)
+        return logging.Formatter.formatTime(self, record, datefmt)
 
 
 def init_cookie_jar(cookie_file=None, cookie_t=None, cookie_y=None, cookie_euconsent=None):
@@ -556,13 +591,6 @@ def init_cookie_jar(cookie_file=None, cookie_t=None, cookie_y=None, cookie_eucon
         cookie_jar.save(ignore_discard=True)
 
     return cookie_jar
-
-
-class CustomFormatter(logging.Formatter):
-    def formatTime(self, record, datefmt=None):
-        if '%f' in datefmt:
-            datefmt = datefmt.replace('%f', '%03d' % record.msecs)
-        return logging.Formatter.formatTime(self, record, datefmt)
 
 
 if __name__ == "__main__":
