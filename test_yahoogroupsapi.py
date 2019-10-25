@@ -1,8 +1,12 @@
 from yahoogroupsapi import YahooGroupsAPI
-import Cookie
 import pytest
 import responses
 from requests.cookies import RequestsCookieJar
+import sys
+if (sys.version_info < (3, 0)):
+    from Cookie import SimpleCookie
+else:
+    from http.cookies import SimpleCookie
 
 from warcio.archiveiterator import ArchiveIterator
 from warcio.warcwriter import BufferWARCWriter
@@ -31,9 +35,9 @@ def test_get_json(response, cookies):
     json = yga.get_json('files', 'a', 2, param1='c', param2=4)
 
     request = response.calls[0].request
-    request_cookies = Cookie.SimpleCookie()
+    request_cookies = SimpleCookie()
     request_cookies.load(request.headers['Cookie'])
-    assert dict(cookies) == {k: v.value for k, v in request_cookies.iteritems()}
+    assert dict(cookies) == {k: v.value for k, v in request_cookies.items()}
 
     assert json == {'result': 'returned data'}
 
