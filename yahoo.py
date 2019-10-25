@@ -1,9 +1,9 @@
 #!/usr/bin/env python2
-import argparse
-import datetime
 from yahoogroupsapi import YahooGroupsAPI
 
+import argparse
 import codecs
+import datetime
 import json
 import logging
 import math
@@ -11,7 +11,9 @@ import os
 import requests.exceptions
 import sys
 import time
-import urllib
+from os.path import basename
+from requests.cookies import RequestsCookieJar, create_cookie
+
 if (sys.version_info < (3, 0)):
     from cookielib import LWPCookieJar
     from urllib import unquote
@@ -22,8 +24,6 @@ else:
     from http.cookiejar import LWPCookieJar
     from urllib.parse import unquote
     from html import unescape as html_unescape
-from os.path import basename
-from requests.cookies import RequestsCookieJar, create_cookie
 
 # number of seconds to wait before trying again
 HOLDOFF = 10
@@ -134,6 +134,7 @@ def archive_email(yga, message_subset=None):
             logger.exception("Failed to get message id: %d", id)
             continue
 
+
 def process_single_attachment(yga, attach):
     logger = logging.getLogger(name="process_single_attachment")
     for frec in attach:
@@ -141,8 +142,8 @@ def process_single_attachment(yga, attach):
         fname = "%s-%s" % (frec['fileId'], basename(frec['filename']))
         with open(fname, 'wb') as f:
             if 'link' in frec:
-            # try and download the attachment
-            # (sometimes yahoo doesn't keep them)
+                # try and download the attachment
+                # (sometimes yahoo doesn't keep them)
                 try:
                     yga.download_file(frec['link'], f=f)
                 except requests.exceptions.HTTPError as err:
@@ -168,7 +169,8 @@ def process_single_attachment(yga, attach):
                         ok = True
                     except requests.exceptions.HTTPError as err:
                         # yahoo says no. exclude this size and try for another.
-                        logger.error("ERROR downloading '%s' variant %s: %s",photoinfo['displayURL'], photoinfo['photoType'], err)
+                        logger.error("ERROR downloading '%s' variant %s: %s", photoinfo['displayURL'],
+                                     photoinfo['photoType'], err)
                         # exclude.append(photoinfo['photoType'])
 
             # if we failed, try the next attachment
@@ -351,7 +353,7 @@ def archive_calendar(yga):
     tmpUri = "%s/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % (api_root, entityId)
     try:
         yga.download_file(tmpUri)  # We expect a 403 or 401  here
-        logger.error("Attempt to get wssid returned HTTP 200, which is unexpected!") # we should never hit this
+        logger.error("Attempt to get wssid returned HTTP 200, which is unexpected!")  # we should never hit this
         return
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 403 or e.response.status_code == 401:
