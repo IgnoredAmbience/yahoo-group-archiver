@@ -556,10 +556,6 @@ def init_cookie_jar(cookie_file=None, cookie_t=None, cookie_y=None, cookie_eucon
 
 
 if __name__ == "__main__":
-    # Setup logging
-    log_format = {'fmt': '%(asctime)s %(levelname)s %(name)s %(message)s', 'datefmt': '%Y-%m-%d %H:%M:%S.%f %Z'}
-    coloredlogs.install(level=logging.DEBUG, **log_format)
-
     p = argparse.ArgumentParser()
 
     pa = p.add_argument_group(title='Authentication Options')
@@ -600,13 +596,26 @@ if __name__ == "__main__":
                     help='Output WARC file of raw network requests. [Requires warcio package installed]')
 
     p.add_argument('-v', '--verbose', action='store_true')
+    p.add_argument('--colour', '--color', action='store_true', help='Colour log output to terminal')
 
     p.add_argument('group', type=str)
 
     args = p.parse_args()
 
-    if not args.verbose:
-        coloredlogs.find_handler(logging.getLogger(), bool)[0].setLevel(logging.INFO)
+    # Setup logging
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+
+    log_format = {'fmt': '%(asctime)s %(levelname)s %(name)s %(message)s', 'datefmt': '%Y-%m-%d %H:%M:%S.%f %Z'}
+    log_formatter = coloredlogs.BasicFormatter(**log_format)
+
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    if args.colour:
+        coloredlogs.install(level=log_level, **log_format)
+    else:
+        log_stdout_handler = logging.StreamHandler(sys.stdout)
+        log_stdout_handler.setFormatter(log_formatter)
+        root_logger.addHandler(log_stdout_handler)
 
     cookie_jar = init_cookie_jar(args.cookie_file, args.cookie_t, args.cookie_y, args.cookie_e)
     yga = YahooGroupsAPI(args.group, cookie_jar)
@@ -618,8 +627,8 @@ if __name__ == "__main__":
 
     with Mkchdir(args.group):
         log_file_handler = logging.FileHandler('archive.log')
-        log_file_handler.setFormatter(coloredlogs.BasicFormatter(**log_format))
-        logging.getLogger().addHandler(log_file_handler)
+        log_file_handler.setFormatter(log_formatter)
+        root_logger.addHandler(log_file_handler)
 
         if args.warc:
             try:
