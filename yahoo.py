@@ -4,7 +4,6 @@ import datetime
 from yahoogroupsapi import YahooGroupsAPI
 
 import codecs
-import coloredlogs
 import json
 import logging
 import math
@@ -555,6 +554,13 @@ def init_cookie_jar(cookie_file=None, cookie_t=None, cookie_y=None, cookie_eucon
     return cookie_jar
 
 
+class CustomFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        if '%f' in datefmt:
+            datefmt = datefmt.replace('%f', '%03d' % record.msecs)
+        return logging.Formatter.formatTime(self, record, datefmt)
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
 
@@ -607,10 +613,15 @@ if __name__ == "__main__":
     root_logger.setLevel(logging.DEBUG)
 
     log_format = {'fmt': '%(asctime)s %(levelname)s %(name)s %(message)s', 'datefmt': '%Y-%m-%d %H:%M:%S.%f %Z'}
-    log_formatter = coloredlogs.BasicFormatter(**log_format)
+    log_formatter = CustomFormatter(**log_format)
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
     if args.colour:
+        try:
+            import coloredlogs
+        except ImportError as e:
+            print("Coloured logging output requires the 'coloredlogs' package to be installed.")
+            raise e
         coloredlogs.install(level=log_level, **log_format)
     else:
         log_stdout_handler = logging.StreamHandler(sys.stdout)
