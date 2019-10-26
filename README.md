@@ -1,4 +1,4 @@
-yahoo-group-archiver
+yahoo-group-archiver  
 pipeline edition
 ====================
 
@@ -13,3 +13,6 @@ Usage:
 pip3 install -r requirements.txt
 run-pipeline3 ./pipeline.py $USERNAME
 ```
+
+Watch:
+http://tracker-test.ddns.net/yahoo-groups-api/
