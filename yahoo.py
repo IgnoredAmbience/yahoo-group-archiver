@@ -661,6 +661,7 @@ if __name__ == "__main__":
         coloredlogs.install(level=log_level, **log_format)
     else:
         log_stdout_handler = logging.StreamHandler(sys.stdout)
+        log_stdout_handler.setLevel(log_level)
         log_stdout_handler.setFormatter(log_formatter)
         root_logger.addHandler(log_stdout_handler)
 
