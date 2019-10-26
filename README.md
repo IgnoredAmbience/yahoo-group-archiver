@@ -10,6 +10,6 @@ cd yahoo-group-archiver
 
 Usage:
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 run-pipeline3 ./pipeline.py $USERNAME
 ```
