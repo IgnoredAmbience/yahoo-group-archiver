@@ -136,7 +136,7 @@ class PrepareDirectories(SimpleTask):
         start_time = time.strftime('%Y%m%d-%H%M%S')
 
         item_name = item['item_name']
-        escaped_item_name = item_name.replace(':', '_').replace('/', '_').replace('~', '_')
+        escaped_item_name = item_name.replace(':', '_').replace('/', '_').replace('~', '_').lower()
         dirname = '/'.join((item['data_dir'], escaped_item_name))
 
         if os.path.isdir(dirname):
