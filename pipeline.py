@@ -43,12 +43,12 @@ if StrictVersion(seesaw.__version__) < StrictVersion('0.10.3'):
 # 2. prints the required version string
 # TODO
 PYTHON = find_executable(
-    'Wget+Lua',
-    ['Python 2.7'],
+    'Python3',
+    ['Python 3.7'],
     [
-        '/usr/bin/python2',
-        '/usr/local/bin/python2',
-        './python2',
+        '/usr/bin/python3',
+        '/usr/local/bin/python3',
+        './python3',
     ]
 )
 
