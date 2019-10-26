@@ -557,8 +557,8 @@ def sanitise_folder_name(name):
 class Mkchdir:
     d = ""
 
-    def __init__(self, d):
-        self.d = sanitise_folder_name(d)
+    def __init__(self, d, sanitize=True):
+        self.d = sanitise_folder_name(d) if sanitize else d
 
     def __enter__(self):
         try:
@@ -673,7 +673,7 @@ if __name__ == "__main__":
         args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = \
             args.polls = args.attachments = args.members = True
 
-    with Mkchdir(args.group):
+    with Mkchdir(args.group, sanitize=False):
         log_file_handler = logging.FileHandler('archive.log')
         log_file_handler.setFormatter(log_formatter)
         root_logger.addHandler(log_file_handler)
