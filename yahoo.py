@@ -68,14 +68,17 @@ def archive_messages_metadata(yga):
     page_count = 0
 
     logger.info("Archiving message metadata...")
+    last_next_page_start = 0
 
     while next_page_start > 0:
         msgs = yga.messages(**params)
-
         with open("message_metadata_%s.json" % page_count, 'wb') as f:
             json.dump(msgs, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
         next_page_start = params['start'] = msgs['nextPageStart']
+        if next_page_start == last_next_page_start:
+            break
+        last_next_page_start = next_page_start
         message_ids += [msg['messageId'] for msg in msgs['messages']]
         page_count += 1
 
