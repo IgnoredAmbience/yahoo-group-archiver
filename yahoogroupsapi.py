@@ -1,10 +1,9 @@
+from __future__ import unicode_literals
 from contextlib import contextmanager
 import functools
 import logging
 import time
 import os
-
-VERIFY_HTTPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yahoogroups_cert_chain.pem')
 
 try:
     from warcio.capture_http import capture_http
@@ -13,6 +12,8 @@ except ImportError as e:
     warcio_failed = e
 
 import requests  # Must be imported after capture_http
+
+VERIFY_HTTPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yahoogroups_cert_chain.pem')
 
 
 @contextmanager
