@@ -44,7 +44,9 @@ if StrictVersion(seesaw.__version__) < StrictVersion('0.10.3'):
 # TODO
 PYTHON = find_executable(
     'Python3',
-    ['Python 3.7', 'Python 3.6'],
+    [   'Python 3.8', 
+        'Python 3.7', 
+        'Python 3.6'   ],
     [
         '/usr/bin/python3',
         '/usr/local/bin/python3',
