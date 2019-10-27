@@ -44,7 +44,7 @@ if StrictVersion(seesaw.__version__) < StrictVersion('0.10.3'):
 # TODO
 PYTHON = find_executable(
     'Python3',
-    ['Python 3.7'],
+    ['Python 3.7', 'Python 3.6'],
     [
         '/usr/bin/python3',
         '/usr/local/bin/python3',
@@ -53,7 +53,7 @@ PYTHON = find_executable(
 )
 
 if not PYTHON:
-    raise Exception('No usable Python 2 found.')
+    raise Exception('No usable Python 3 found.')
 
 
 ###########################################################################
@@ -61,7 +61,7 @@ if not PYTHON:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20191026.05'
+VERSION = '20191027.01'
 USER_AGENT = 'ArchiveTeam'
 TRACKER_ID = 'yahoo-groups-api'
 # TRACKER_HOST = 'tracker.archiveteam.org'  #prod-env
