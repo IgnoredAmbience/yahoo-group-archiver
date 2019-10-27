@@ -5,8 +5,8 @@ pipeline edition
 * Python 3
 
 git clone https://github.com/marked/yahoo-group-archiver.git  
-git checkout warrior-pipeline3  
 cd yahoo-group-archiver  
+git checkout warrior-pipeline3  
 
 Usage:
 ```bash
