@@ -132,10 +132,11 @@ def archive_message_content(yga, id, status=""):
             break
 
 
-def archive_email(yga, message_subset=None):
+def archive_email(yga, message_subset=None, start=None, stop=None):
     logger = logging.getLogger('archive_email')
     try:
-        yga.messages()
+        # Grab messages for initial counts and permissions check
+        init_messages = yga.messages()
     except requests.exceptions.HTTPError as err:
         if err.response.status_code == 307 or err.response.status_code==401 or err.response.status_code==403:
             logger.error("Couldn't access Messages functionality for this group")
@@ -144,7 +145,20 @@ def archive_email(yga, message_subset=None):
             logger.error("Unknown error archiving messages: %s", err.response.status_code)
             return
 
-    if message_subset is None:
+    if start is not None or stop is not None:
+        start = start or 1
+        stop = stop or init_messages['lastRecordId']
+        stop = min(stop, init_messages['lastRecordId'])
+        r = range(start, stop + 1)
+
+        if message_subset is None:
+            message_subset = list(r)
+        else:
+            s = set(r).union(message_subset)
+            message_subset = list(s)
+            message_subset.sort()
+
+    if not message_subset:
         message_subset = archive_messages_metadata(yga)
         logger.debug(message_subset)
         logger.info("Group has %s messages (maximum id: %s), fetching all",
@@ -662,6 +676,19 @@ if __name__ == "__main__":
     pr.add_argument('--user-agent', type=str,
                     help='Override the default user agent used to make requests')
 
+    pc = p.add_argument_group(title='Message Range Options',
+                              description='Options to specify which messages to download. Use of multiple options will '
+                              'be combined. Note: These options will also try to fetch message IDs that may not exist '
+                              'in the group.')
+    pc.add_argument('--start', type=int,
+                    help='Email message id to start from (specifying this will cause only specified message contents to'
+                    ' be downloaded, and not message indexes). Default to 1, if end option provided.')
+    pc.add_argument('--stop', type=int,
+                    help='Email message id to stop at (inclusive), defaults to last message ID available, if start '
+                    'option provided.')
+    pc.add_argument('--ids', nargs='+', type=int,
+                    help='Get email message by ID(s). Space separated, terminated by another flag or --')
+
     pf = p.add_argument_group(title='Output Options')
     pf.add_argument('-w', '--warc', action='store_true',
                     help='Output WARC file of raw network requests. [Requires warcio package installed]')
@@ -726,7 +753,7 @@ if __name__ == "__main__":
 
         if args.email:
             with Mkchdir('email'):
-                archive_email(yga)
+                archive_email(yga, message_subset=args.ids, start=args.start, stop=args.stop)
         if args.files:
             with Mkchdir('files'):
                 archive_files(yga)
