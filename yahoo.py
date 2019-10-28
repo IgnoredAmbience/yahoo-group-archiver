@@ -222,16 +222,18 @@ def archive_files(yga, subdir=None):
         n += 1
         if path['type'] == 0:
             # Regular file
-            name = "%d_%s" % (n,html_unescape(path['fileName']))
-            logger.info("Fetching file '%s' (%d/%d)", name, n, sz)
-            with open(sanitise_file_name(name), 'wb') as f:
+            name = html_unescape(path['fileName'])
+            new_name = sanitise_file_name("%d_%s" % (n, name))
+            logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
+            with open(new_name, 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
 
         elif path['type'] == 1:
             # Directory
-            name = "%d_%s" % (n,html_unescape(path['fileName']))
-            logger.info("Fetching directory '%s' (%d/%d)", name, n, sz)
-            with Mkchdir(name):
+            name = html_unescape(path['fileName'])
+            new_name = "%d_%s" % (n, name)
+            logger.info("Fetching directory '%s' as '%s' (%d/%d)", name, sanitise_folder_name(new_name), n, sz)
+            with Mkchdir(new_name):     # (new_name sanitised again by Mkchdir)
                 pathURI = unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
 
