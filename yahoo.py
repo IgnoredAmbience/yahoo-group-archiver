@@ -1,4 +1,4 @@
-#g!/usr/bin/env python
+#!/usr/bin/env python
 from __future__ import unicode_literals
 from yahoogroupsapi import YahooGroupsAPI
 
