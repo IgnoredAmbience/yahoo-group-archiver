@@ -656,6 +656,10 @@ if __name__ == "__main__":
     po.add_argument('-m', '--members', action='store_true',
                     help='Only archive members')
 
+    pr = p.add_argument_group(title='Request Options')
+    pr.add_argument('--user-agent', type=str,
+                    help='Override the default user agent used to make requests')
+
     pf = p.add_argument_group(title='Output Options')
     pf.add_argument('-w', '--warc', action='store_true',
                     help='Output WARC file of raw network requests. [Requires warcio package installed]')
@@ -689,7 +693,12 @@ if __name__ == "__main__":
         root_logger.addHandler(log_stdout_handler)
 
     cookie_jar = init_cookie_jar(args.cookie_file, args.cookie_t, args.cookie_y, args.cookie_e)
-    yga = YahooGroupsAPI(args.group, cookie_jar)
+
+    headers = {}
+    if args.user_agent:
+        headers['User-Agent'] = args.user_agent
+
+    yga = YahooGroupsAPI(args.group, cookie_jar, headers)
 
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
             args.polls or args.attachments or args.members):
