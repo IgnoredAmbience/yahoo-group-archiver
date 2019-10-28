@@ -36,6 +36,12 @@ In Google Chrome these steps are required:
 5. Select the T cookie and copy the Content field in place of `<T_cookie>` in the above command line.
 6. Select the Y cookie and copy the Content field in place of `<Y_cookie>` in the above command line.
 
+In Firefox:
+1. Go to [Yahoo Groups](https://groups.yahoo.com/neo) (make sure you're signed in with your account).
+2. Press Shift-F9 or select the menu Tools/Web Developer/Storage Inspector.
+3. Double click on the T cookie's value and copy the content in place of `<T_cookie>` in the above command line.
+4. Double click on the Y cookie's value and copy the content in place of `<Y_cookie>` in the above command line.
+
 Note: the string you paste _must_ be surrounded by quotes.
 
 Using the `--cookie-file` (or `-cf`) option allows you to specify a file in which the authentication cookies will be
