@@ -315,31 +315,37 @@ def archive_db(yga):
     logger = logging.getLogger(name="archive_db")
     for i in range(TRIES):
         try:
-            json = yga.database()
+            db_json = yga.database()
             break
         except requests.exceptions.HTTPError as err:
-            json = None
+            db_json = None
             if err.response.status_code == 403 or err.response.status_code == 401 or err.response.status_code == 307:
                 # 401 or 403 error means Permission Denied; 307 means redirect to login. Retrying won't help.
                 break
             logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
             time.sleep(HOLDOFF)
 
-    if json is None:
+    if db_json is None:
         logger.error("Couldn't access Database functionality for this group")
         return
+    else:
+        with open('databases.json', 'wb') as f:
+            json.dump(db_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     n = 0
-    nts = len(json['tables'])
-    for table in json['tables']:
+    nts = len(db_json['tables'])
+    for table in db_json['tables']:
         n += 1
         logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
 
-        name = table['name'] + '.csv'
+        name = "%s_%s.csv" % (table['tableId'], table['name'])
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
         with open(sanitise_file_name(name), 'wb') as f:
             yga.download_file(uri, f)
 
+        records_json = yga.database(table['tableId'], 'records')
+        with open('%s_records.json' % table['tableId'], 'wb') as f:
+            json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
 def archive_links(yga, subdir=''):
     logger = logging.getLogger(name="archive_links")
