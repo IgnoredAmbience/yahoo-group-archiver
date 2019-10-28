@@ -83,14 +83,15 @@ def archive_messages_metadata(yga):
         with open("message_metadata_%s.json" % page_count, 'wb') as f:
             json.dump(msgs, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
+        message_ids += [msg['messageId'] for msg in msgs['messages']]
+
+        logger.info("Archived message metadata records (%d of %d)", len(message_ids), msgs['totalRecords'])
+
+        page_count += 1
         next_page_start = params['start'] = msgs['nextPageStart']
         if next_page_start == last_next_page_start:
             break
         last_next_page_start = next_page_start
-        message_ids += [msg['messageId'] for msg in msgs['messages']]
-        page_count += 1
-
-        logger.info("Archived message metadata records (%d of %d)", len(message_ids), msgs['totalRecords'])
 
     return message_ids
 
@@ -145,6 +146,7 @@ def archive_email(yga, message_subset=None):
 
     if message_subset is None:
         message_subset = archive_messages_metadata(yga)
+        logger.debug(message_subset)
         logger.info("Group has %s messages (maximum id: %s), fetching all",
                     len(message_subset), (message_subset or ['n/a'])[-1])
 
