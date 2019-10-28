@@ -118,7 +118,7 @@ def archive_message_content(yga, id, status=""):
             with open("%s.json" % (id,), 'wb') as f:
                 json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
-            if 'attachmentsInfo' in html_json:
+            if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
                 with Mkchdir("%d_attachments" % id):
                     process_single_attachment(yga, html_json['attachmentsInfo'])
 
