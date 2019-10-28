@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#g!/usr/bin/env python
 from __future__ import unicode_literals
 from yahoogroupsapi import YahooGroupsAPI
 
@@ -136,8 +136,12 @@ def archive_email(yga, message_subset=None):
     try:
         yga.messages()
     except requests.exceptions.HTTPError as err:
-        logger.error("User doesn't have permission to access Messages in this group", err.message)
-        return
+        if err.response.status_code == 307 or err.response.status_code==401 or err.response.status_code==403:
+            logger.error("Couldn't access Messages functionality for this group")
+            return
+        else:
+            logger.error("Unknown error archiving messages: %s", err.response.status_code)
+            return
 
     if message_subset is None:
         message_subset = archive_messages_metadata(yga)
@@ -313,14 +317,14 @@ def archive_db(yga):
             break
         except requests.exceptions.HTTPError as err:
             json = None
-            if err.response.status_code == 403 or err.response.status_code == 401:
-                # 401 or 403 error means Permission Denied. Retrying won't help.
+            if err.response.status_code == 403 or err.response.status_code == 401 or err.response.status_code == 307:
+                # 401 or 403 error means Permission Denied; 307 means redirect to login. Retrying won't help.
                 break
             logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
             time.sleep(HOLDOFF)
 
     if json is None:
-        logger.error("ERROR: Couldn't access Database functionality for this group")
+        logger.error("Couldn't access Database functionality for this group")
         return
 
     n = 0
@@ -341,8 +345,8 @@ def archive_links(yga, subdir=''):
     try:
         links = yga.links(linkdir=subdir)
     except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            logger.warn("User doesn't have permission to access Links in this group.")
+        if e.response.status_code == 403 or e.response.status_code == 307:
+            logger.error("User doesn't have permission to access Links in this group.")
             return
         else:
             raise e
@@ -474,7 +478,7 @@ def archive_polls(yga):
     try:
         pollsList = yga.polls(count=100, sort='DESC')
     except Exception:
-        logger.error("ERROR: Couldn't access Polls functionality for this group")
+        logger.error("Couldn't access Polls functionality for this group")
         return
 
     if len(pollsList) == 100:
@@ -525,9 +529,9 @@ def archive_members(yga):
             break
         except requests.exceptions.HTTPError as err:
             confirmed_json = None
-            if err.response.status_code == 403 or err.response.status_code == 401:
-                # 401 or 403 error means Permission Denied. Retrying won't help.
-                logger.error("Permission denied to access members.")
+            if err.response.status_code == 403 or err.response.status_code == 401 or err.response.status_code == 307:
+                # 401 or 403 error means Permission Denied, 307 is redirect to login. Retrying won't help.
+                logger.error("Couldn't access Members list functionality for this group")
                 return
             logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
             time.sleep(HOLDOFF)
