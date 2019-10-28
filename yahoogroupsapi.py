@@ -43,13 +43,14 @@ class YahooGroupsAPI:
     ww = None
     http_context = dummy_contextmanager
 
-    def __init__(self, group, cookie_jar=None):
+    def __init__(self, group, cookie_jar=None, headers={}):
         self.s = requests.Session()
         self.group = group
 
         if cookie_jar:
             self.s.cookies = cookie_jar
         self.s.headers = {'Referer': self.BASE_URI}
+        self.s.headers.update(headers)
 
     def set_warc_writer(self, ww):
         if ww is not None and warcio_failed:

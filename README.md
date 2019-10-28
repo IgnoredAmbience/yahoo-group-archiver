@@ -1,8 +1,8 @@
 yahoo-group-archiver  
-pipeline edition
+pipeline edition  
 ====================
 
-* Python 3
+* Python 3.6 - 3.8  
 
 git clone https://github.com/marked/yahoo-group-archiver.git  
 cd yahoo-group-archiver  
@@ -13,6 +13,5 @@ Usage:
 pip3 install -r requirements.txt
 run-pipeline3 ./pipeline.py $USERNAME
 ```
-
-Watch:
+Watch:  
 http://tracker-test.ddns.net/yahoo-groups-api/

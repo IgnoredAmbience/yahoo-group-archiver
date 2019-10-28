@@ -83,14 +83,15 @@ def archive_messages_metadata(yga):
         with open("message_metadata_%s.json" % page_count, 'wb') as f:
             json.dump(msgs, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
+        message_ids += [msg['messageId'] for msg in msgs['messages']]
+
+        logger.info("Archived message metadata records (%d of %d)", len(message_ids), msgs['totalRecords'])
+
+        page_count += 1
         next_page_start = params['start'] = msgs['nextPageStart']
         if next_page_start == last_next_page_start:
             break
         last_next_page_start = next_page_start
-        message_ids += [msg['messageId'] for msg in msgs['messages']]
-        page_count += 1
-
-        logger.info("Archived message metadata records (%d of %d)", len(message_ids), msgs['totalRecords'])
 
     return message_ids
 
@@ -131,16 +132,35 @@ def archive_message_content(yga, id, status=""):
             break
 
 
-def archive_email(yga, message_subset=None):
+def archive_email(yga, message_subset=None, start=None, stop=None):
     logger = logging.getLogger('archive_email')
     try:
-        yga.messages()
+        # Grab messages for initial counts and permissions check
+        init_messages = yga.messages()
     except requests.exceptions.HTTPError as err:
-        logger.error("User doesn't have permission to access Messages in this group", err.message)
-        return
+        if err.response.status_code == 307 or err.response.status_code==401 or err.response.status_code==403:
+            logger.error("Couldn't access Messages functionality for this group")
+            return
+        else:
+            logger.error("Unknown error archiving messages: %s", err.response.status_code)
+            return
 
-    if message_subset is None:
+    if start is not None or stop is not None:
+        start = start or 1
+        stop = stop or init_messages['lastRecordId']
+        stop = min(stop, init_messages['lastRecordId'])
+        r = range(start, stop + 1)
+
+        if message_subset is None:
+            message_subset = list(r)
+        else:
+            s = set(r).union(message_subset)
+            message_subset = list(s)
+            message_subset.sort()
+
+    if not message_subset:
         message_subset = archive_messages_metadata(yga)
+        logger.debug(message_subset)
         logger.info("Group has %s messages (maximum id: %s), fetching all",
                     len(message_subset), (message_subset or ['n/a'])[-1])
 
@@ -219,15 +239,17 @@ def archive_files(yga, subdir=None):
         if path['type'] == 0:
             # Regular file
             name = html_unescape(path['fileName'])
-            logger.info("Fetching file '%s' (%d/%d)", name, n, sz)
-            with open(sanitise_file_name(name), 'wb') as f:
+            new_name = sanitise_file_name("%d_%s" % (n, name))
+            logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
+            with open(new_name, 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
 
         elif path['type'] == 1:
             # Directory
             name = html_unescape(path['fileName'])
-            logger.info("Fetching directory '%s' (%d/%d)", name, n, sz)
-            with Mkchdir(name):
+            new_name = "%d_%s" % (n, name)
+            logger.info("Fetching directory '%s' as '%s' (%d/%d)", name, sanitise_folder_name(new_name), n, sz)
+            with Mkchdir(new_name):     # (new_name sanitised again by Mkchdir)
                 pathURI = unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
 
@@ -309,31 +331,37 @@ def archive_db(yga):
     logger = logging.getLogger(name="archive_db")
     for i in range(TRIES):
         try:
-            json = yga.database()
+            db_json = yga.database()
             break
         except requests.exceptions.HTTPError as err:
-            json = None
-            if err.response.status_code == 403 or err.response.status_code == 401:
-                # 401 or 403 error means Permission Denied. Retrying won't help.
+            db_json = None
+            if err.response.status_code == 403 or err.response.status_code == 401 or err.response.status_code == 307:
+                # 401 or 403 error means Permission Denied; 307 means redirect to login. Retrying won't help.
                 break
             logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
             time.sleep(HOLDOFF)
 
-    if json is None:
-        logger.error("ERROR: Couldn't access Database functionality for this group")
+    if db_json is None:
+        logger.error("Couldn't access Database functionality for this group")
         return
+    else:
+        with open('databases.json', 'wb') as f:
+            json.dump(db_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     n = 0
-    nts = len(json['tables'])
-    for table in json['tables']:
+    nts = len(db_json['tables'])
+    for table in db_json['tables']:
         n += 1
         logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
 
-        name = table['name'] + '.csv'
+        name = "%s_%s.csv" % (table['tableId'], table['name'])
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
         with open(sanitise_file_name(name), 'wb') as f:
             yga.download_file(uri, f)
 
+        records_json = yga.database(table['tableId'], 'records')
+        with open('%s_records.json' % table['tableId'], 'wb') as f:
+            json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
 def archive_links(yga, subdir=''):
     logger = logging.getLogger(name="archive_links")
@@ -341,8 +369,8 @@ def archive_links(yga, subdir=''):
     try:
         links = yga.links(linkdir=subdir)
     except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            logger.warn("User doesn't have permission to access Links in this group.")
+        if e.response.status_code == 403 or e.response.status_code == 307:
+            logger.error("User doesn't have permission to access Links in this group.")
             return
         else:
             raise e
@@ -474,7 +502,7 @@ def archive_polls(yga):
     try:
         pollsList = yga.polls(count=100, sort='DESC')
     except Exception:
-        logger.error("ERROR: Couldn't access Polls functionality for this group")
+        logger.error("Couldn't access Polls functionality for this group")
         return
 
     if len(pollsList) == 100:
@@ -525,9 +553,9 @@ def archive_members(yga):
             break
         except requests.exceptions.HTTPError as err:
             confirmed_json = None
-            if err.response.status_code == 403 or err.response.status_code == 401:
-                # 401 or 403 error means Permission Denied. Retrying won't help.
-                logger.error("Permission denied to access members.")
+            if err.response.status_code == 403 or err.response.status_code == 401 or err.response.status_code == 307:
+                # 401 or 403 error means Permission Denied, 307 is redirect to login. Retrying won't help.
+                logger.error("Couldn't access Members list functionality for this group")
                 return
             logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
             time.sleep(HOLDOFF)
@@ -557,7 +585,7 @@ def sanitise_file_name(value):
     """
     value = text(value)
     value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
-    value = re.sub(r'[^\w\s.-]', '', value).strip().strip('.').lower()
+    value = re.sub(r'[^\w\s.-]', '', value).strip().strip('.')
     return re.sub(r'[-\s]+', '-', value)
 
 
@@ -644,6 +672,23 @@ if __name__ == "__main__":
     po.add_argument('-m', '--members', action='store_true',
                     help='Only archive members')
 
+    pr = p.add_argument_group(title='Request Options')
+    pr.add_argument('--user-agent', type=str,
+                    help='Override the default user agent used to make requests')
+
+    pc = p.add_argument_group(title='Message Range Options',
+                              description='Options to specify which messages to download. Use of multiple options will '
+                              'be combined. Note: These options will also try to fetch message IDs that may not exist '
+                              'in the group.')
+    pc.add_argument('--start', type=int,
+                    help='Email message id to start from (specifying this will cause only specified message contents to'
+                    ' be downloaded, and not message indexes). Default to 1, if end option provided.')
+    pc.add_argument('--stop', type=int,
+                    help='Email message id to stop at (inclusive), defaults to last message ID available, if start '
+                    'option provided.')
+    pc.add_argument('--ids', nargs='+', type=int,
+                    help='Get email message by ID(s). Space separated, terminated by another flag or --')
+
     pf = p.add_argument_group(title='Output Options')
     pf.add_argument('-w', '--warc', action='store_true',
                     help='Output WARC file of raw network requests. [Requires warcio package installed]')
@@ -677,7 +722,12 @@ if __name__ == "__main__":
         root_logger.addHandler(log_stdout_handler)
 
     cookie_jar = init_cookie_jar(args.cookie_file, args.cookie_t, args.cookie_y, args.cookie_e)
-    yga = YahooGroupsAPI(args.group, cookie_jar)
+
+    headers = {}
+    if args.user_agent:
+        headers['User-Agent'] = args.user_agent
+
+    yga = YahooGroupsAPI(args.group, cookie_jar, headers)
 
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
             args.polls or args.attachments or args.members):
@@ -703,7 +753,7 @@ if __name__ == "__main__":
 
         if args.email:
             with Mkchdir('email'):
-                archive_email(yga)
+                archive_email(yga, message_subset=args.ids, start=args.start, stop=args.stop)
         if args.files:
             with Mkchdir('files'):
                 archive_files(yga)
