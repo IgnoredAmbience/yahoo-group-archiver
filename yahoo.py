@@ -563,7 +563,7 @@ def sanitise_file_name(value):
     """
     value = text(value)
     value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
-    value = re.sub(r'[^\w\s.-]', '', value).strip().strip('.').lower()
+    value = re.sub(r'[^\w\s.-]', '', value).strip().strip('.')
     return re.sub(r'[-\s]+', '-', value)
 
 
