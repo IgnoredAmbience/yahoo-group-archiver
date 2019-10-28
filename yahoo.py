@@ -41,7 +41,7 @@ TRIES = 10
 # WARC metadata params
 
 WARC_META_PARAMS = OrderedDict([('software', 'yahoo-group-archiver'),
-                                ('version','20191026.05'),
+                                ('version','20191028.01'),
                                 ('format', 'WARC File Format 1.0'),
                                ])
 
@@ -76,14 +76,17 @@ def archive_messages_metadata(yga):
     page_count = 0
 
     logger.info("Archiving message metadata...")
+    last_next_page_start = 0
 
     while next_page_start > 0:
         msgs = yga.messages(**params)
-
         with open("message_metadata_%s.json" % page_count, 'wb') as f:
             json.dump(msgs, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
         next_page_start = params['start'] = msgs['nextPageStart']
+        if next_page_start == last_next_page_start:
+            break
+        last_next_page_start = next_page_start
         message_ids += [msg['messageId'] for msg in msgs['messages']]
         page_count += 1
 
@@ -115,7 +118,7 @@ def archive_message_content(yga, id, status=""):
             with open("%s.json" % (id,), 'wb') as f:
                 json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
-            if 'attachmentsInfo' in html_json:
+            if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
                 with Mkchdir("%d_attachments" % id):
                     process_single_attachment(yga, html_json['attachmentsInfo'])
 
