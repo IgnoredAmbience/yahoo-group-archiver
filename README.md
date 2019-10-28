@@ -28,6 +28,11 @@ pip install -r requirements.txt
 
 You will need to get the `T` and `Y` cookie values from an authenticated
 browser session.
+
+The cookies should look like this, where `someLongText` and `someShortText` are arbitrary strings:
+- T: `z=someLongText&a=someLongText&sk=someLongText&ks=someLongText&kt=someLongText&ku=someLongText&d=someLongText&af=someLongText`
+- Y: `v=1&n=someLongText&l=someShortText=someShortText&r=hp&intl=us`
+
 In Google Chrome these steps are required:
 1. Go to [Yahoo Groups](https://groups.yahoo.com/neo).
 2. Click the ⓘ (cicled letter i) in the address bar.
