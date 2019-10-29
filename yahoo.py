@@ -33,7 +33,7 @@ else:
     text = str
 
 # number of seconds to wait before trying again
-HOLDOFF = 10
+HOLDOFF = 2
 
 # max tries
 TRIES = 10
@@ -98,9 +98,9 @@ def archive_messages_metadata(yga):
 
 def archive_message_content(yga, id, status=""):
     logger = logging.getLogger('archive_message_content')
-    logger.info("Fetching  raw message id: %d %s", id, status)
     for i in range(TRIES):
         try:
+            logger.info("Fetching  raw message id: %d %s", id, status)
             raw_json = yga.messages(id, 'raw')
             with open("%s_raw.json" % (id,), 'wb') as f:
                 json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
@@ -108,13 +108,16 @@ def archive_message_content(yga, id, status=""):
         except requests.exceptions.ReadTimeout:
             logger.exception("Read timeout for raw message %d, retrying", id)
             time.sleep(HOLDOFF)
-        except requests.exceptions.HTTPError:
+        except requests.exceptions.HTTPError as err:
             logger.exception("Raw grab failed for message %d", id)
-            break
+            code = err.response.status_code
+            if code == 403 or code == 401 or code == 307 or code == 404:
+                break
+            time.sleep(HOLDOFF)
 
-    logger.info("Fetching html message id: %d %s", id, status)
     for i in range(TRIES):
         try:
+            logger.info("Fetching html message id: %d %s", id, status)
             html_json = yga.messages(id)
             with open("%s.json" % (id,), 'wb') as f:
                 json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
@@ -127,9 +130,12 @@ def archive_message_content(yga, id, status=""):
         except requests.exceptions.ReadTimeout:
             logger.exception("Read timeout for html message %d, retrying", id)
             time.sleep(HOLDOFF)
-        except requests.exceptions.HTTPError:
+        except requests.exceptions.HTTPError as err:
             logger.exception("HTML grab failed for message %d", id)
-            break
+            code = err.response.status_code
+            if code == 403 or code == 401 or code == 307 or code == 404:
+                break
+            time.sleep(HOLDOFF)
 
 
 def archive_email(yga, message_subset=None, start=None, stop=None):
