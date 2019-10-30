@@ -43,9 +43,10 @@ class YahooGroupsAPI:
     ww = None
     http_context = dummy_contextmanager
 
-    def __init__(self, group, cookie_jar=None, headers={}):
+    def __init__(self, group, cookie_jar=None, headers={}, delay=0):
         self.s = requests.Session()
         self.group = group
+        self.delay = delay
 
         if cookie_jar:
             self.s.cookies = cookie_jar
@@ -73,6 +74,7 @@ class YahooGroupsAPI:
         with self.http_context(self.ww):
             retries = 5
             while True:
+                time.sleep(self.delay)
                 r = self.s.get(url, stream=True, verify=VERIFY_HTTPS, **args)
                 if r.status_code == 400 and retries > 0:
                     self.logger.info("Got 400 error for %s, will sleep and retry %d times", url, retries)
@@ -98,7 +100,7 @@ class YahooGroupsAPI:
                 uri_parts[4] = ''
 
             uri = "/".join(uri_parts)
-
+            time.sleep(self.delay)
             r = self.s.get(uri, params=opts, verify=VERIFY_HTTPS, allow_redirects=False, timeout=15)
             try:
                 r.raise_for_status()
