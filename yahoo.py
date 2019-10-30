@@ -701,7 +701,7 @@ if __name__ == "__main__":
 
     p.add_argument('-v', '--verbose', action='store_true')
     p.add_argument('--colour', '--color', action='store_true', help='Colour log output to terminal')
-    p.add_argument('--delay', '--delay', nargs='?', type=float, help='Minimum delay between requests')
+    p.add_argument('--delay', type=float, default=0.2, help='Minimum delay between requests (default 0.2s)')
 
     p.add_argument('group', type=str)
 
@@ -733,9 +733,8 @@ if __name__ == "__main__":
     headers = {}
     if args.user_agent:
         headers['User-Agent'] = args.user_agent
-    delay = 0.2 if args.delay is None else args.delay
 
-    yga = YahooGroupsAPI(args.group, cookie_jar, headers, delay=delay)
+    yga = YahooGroupsAPI(args.group, cookie_jar, headers, delay=args.delay)
 
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
             args.polls or args.attachments or args.members):
