@@ -2,8 +2,9 @@ from __future__ import unicode_literals
 from contextlib import contextmanager
 import functools
 import logging
-import time
 import os
+import random
+import time
 
 try:
     from warcio.capture_http import capture_http
@@ -12,6 +13,7 @@ except ImportError as e:
     warcio_failed = e
 
 import requests  # Must be imported after capture_http
+from requests.exceptions import Timeout, ConnectionError
 
 VERIFY_HTTPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yahoogroups_cert_chain.pem')
 
@@ -19,6 +21,26 @@ VERIFY_HTTPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yahoogr
 @contextmanager
 def dummy_contextmanager(*kargs, **kwargs):
     yield
+
+
+class YGAException(Exception):
+    pass
+
+
+class Unrecoverable(YGAException):
+    pass
+
+
+class AuthenticationError(Unrecoverable):
+    pass
+
+
+class NotFound(Unrecoverable):
+    pass
+
+
+class Recoverable(YGAException):
+    pass
 
 
 class YahooGroupsAPI:
@@ -43,10 +65,11 @@ class YahooGroupsAPI:
     ww = None
     http_context = dummy_contextmanager
 
-    def __init__(self, group, cookie_jar=None, headers={}, delay=0):
+    def __init__(self, group, cookie_jar=None, headers={}, min_delay=0, retries=10):
         self.s = requests.Session()
         self.group = group
-        self.delay = delay
+        self.min_delay = min_delay
+        self.retries = retries
 
         if cookie_jar:
             self.s.cookies = cookie_jar
@@ -61,34 +84,47 @@ class YahooGroupsAPI:
         self.http_context = capture_http
 
     def __getattr__(self, name):
+        """ Return an API stub function for the API endpoint called name.
+
+        Examples:
+           yga.messages(123, 'raw') -> yga.get_json('messages')(123, 'raw') -> calls API endpoint '/messages/123/raw'
+           yga.messages(count=50) -> yga.get_json('messages')(count=50) -> calls API endpoint '/messages?count=50'
         """
-        Easy, human-readable REST stub, eg:
-           yga.messages(123, 'raw')
-           yga.messages(count=50)
-        """
-        if name not in self.API_VERSIONS:
-            raise AttributeError()
+        self.API_VERSIONS[name]  # Tests that name is defined, and raises an AttributeError if not
         return functools.partial(self.get_json, name)
+
+    def backoff_time(self, attempt):
+        """Calculate backoff time from minimum delay and attempt number.
+           Currently no good reason for choice of backoff, except not to increase too rapidly."""
+        return max(self.min_delay, random.uniform(0, attempt))
 
     def download_file(self, url, f=None, **args):
         with self.http_context(self.ww):
-            retries = 5
-            while True:
-                time.sleep(self.delay)
-                r = self.s.get(url, stream=True, verify=VERIFY_HTTPS, **args)
-                if r.status_code == 400 and retries > 0:
-                    self.logger.info("Got 400 error for %s, will sleep and retry %d times", url, retries)
-                    retries -= 1
-                    time.sleep(5)
-                    continue
+            time.sleep(self.min_delay)
+
+            for attempt in range(self.retries):
+                r = self.s.get(url, verify=VERIFY_HTTPS, **args)
+                if r.status_code == 400 or r.status_code == 500:
+                    if r.status_code == 400 and 'malware' in r.text:
+                        self.logger.warning("Got 400 error indicating malware for %s, skipping", url)
+                        break
+                    else:
+                        self.logger.info("Got %d error for %s, will sleep and retry", r.status_code, url)
+                        if attempt < self.retries-1:
+                            delay = self.backoff_time(attempt)
+                            self.logger.info("Attempt %d, delaying for %.2f seconds", attempt+1, delay)
+                            time.sleep(delay)
+                            continue
+                        self.logger.warning("Giving up, too many failed attempts at downloading %s", url)
+                elif r.status_code != 200:
+                    self.logger.error("Unknown %d error for %s, giving up on this download", r.status_code, url)
                 r.raise_for_status()
                 break
 
             if f is None:
                 return r.content
-
-            for chunk in r.iter_content(chunk_size=4096):
-                f.write(chunk)
+            else:
+                f.write(r.content)
 
     def get_json(self, target, *parts, **opts):
         """Get an arbitrary endpoint and parse as json"""
@@ -100,14 +136,30 @@ class YahooGroupsAPI:
                 uri_parts[4] = ''
 
             uri = "/".join(uri_parts)
-            time.sleep(self.delay)
-            r = self.s.get(uri, params=opts, verify=VERIFY_HTTPS, allow_redirects=False, timeout=15)
-            try:
-                r.raise_for_status()
-                if r.status_code != 200:
-                    raise requests.exceptions.HTTPError(response=r)
-                return r.json()['ygData']
-            except Exception as e:
-                self.logger.debug("Exception raised on uri: %s", r.request.url)
-                self.logger.debug(r.content)
-                raise e
+            time.sleep(self.min_delay)
+
+            for attempt in range(self.retries):
+                try:
+                    r = self.s.get(uri, params=opts, verify=VERIFY_HTTPS, allow_redirects=False, timeout=15)
+
+                    code = r.status_code
+                    if code == 307 or code == 401 or code == 403:
+                        raise AuthenticationError()
+                    elif code == 404:
+                        raise NotFound()
+                    elif code != 200:
+                        # TODO: Test ygError response?
+                        raise Recoverable()
+
+                    return r.json()['ygData']
+                except (ConnectionError, Timeout, Recoverable) as e:
+                    self.logger.info("API query failed for '%s': %s", uri, e)
+                    self.logger.debug("Exception detail:", exc_info=e)
+
+                    if attempt < self.retries - 1:
+                        delay = self.backoff_time(attempt)
+                        self.logger.info("Attempt %d/%d failed, delaying for %.2f seconds", attempt+1, self.retries, delay)
+                        time.sleep(delay)
+                        continue
+                    else:
+                        raise

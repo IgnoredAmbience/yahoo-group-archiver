@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from __future__ import unicode_literals
+import yahoogroupsapi
 from yahoogroupsapi import YahooGroupsAPI
 
 import argparse
@@ -12,7 +13,6 @@ import os
 import re
 import requests.exceptions
 import sys
-import time
 import unicodedata
 from os.path import basename
 from collections import OrderedDict
@@ -32,18 +32,13 @@ else:
     from html import unescape as html_unescape
     text = str
 
-# number of seconds to wait before trying again
-HOLDOFF = 2
-
-# max tries
-TRIES = 10
-
 # WARC metadata params
 
 WARC_META_PARAMS = OrderedDict([('software', 'yahoo-group-archiver'),
-                                ('version','20191025-1'),
+                                ('version', '20191025-1'),
                                 ('format', 'WARC File Format 1.0'),
-                               ])
+                                ])
+
 
 def get_best_photoinfo(photoInfoArr, exclude=[]):
     logger = logging.getLogger(name="get_best_photoinfo")
@@ -98,44 +93,25 @@ def archive_messages_metadata(yga):
 
 def archive_message_content(yga, id, status=""):
     logger = logging.getLogger('archive_message_content')
-    for i in range(TRIES):
-        try:
-            logger.info("Fetching  raw message id: %d %s", id, status)
-            raw_json = yga.messages(id, 'raw')
-            with open("%s_raw.json" % (id,), 'wb') as f:
-                json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-            break
-        except requests.exceptions.ReadTimeout:
-            logger.exception("Read timeout for raw message %d, retrying", id)
-            time.sleep(HOLDOFF)
-        except requests.exceptions.HTTPError as err:
-            logger.exception("Raw grab failed for message %d", id)
-            code = err.response.status_code
-            if code == 403 or code == 401 or code == 307 or code == 404:
-                break
-            time.sleep(HOLDOFF)
+    try:
+        logger.info("Fetching  raw message id: %d %s", id, status)
+        raw_json = yga.messages(id, 'raw')
+        with open("%s_raw.json" % (id,), 'wb') as f:
+            json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    except Exception:
+        logger.exception("Raw grab failed for message %d", id)
 
-    for i in range(TRIES):
-        try:
-            logger.info("Fetching html message id: %d %s", id, status)
-            html_json = yga.messages(id)
-            with open("%s.json" % (id,), 'wb') as f:
-                json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    try:
+        logger.info("Fetching html message id: %d %s", id, status)
+        html_json = yga.messages(id)
+        with open("%s.json" % (id,), 'wb') as f:
+            json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
-            if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
-                with Mkchdir("%d_attachments" % id):
-                    process_single_attachment(yga, html_json['attachmentsInfo'])
-
-            break
-        except requests.exceptions.ReadTimeout:
-            logger.exception("Read timeout for html message %d, retrying", id)
-            time.sleep(HOLDOFF)
-        except requests.exceptions.HTTPError as err:
-            logger.exception("HTML grab failed for message %d", id)
-            code = err.response.status_code
-            if code == 403 or code == 401 or code == 307 or code == 404:
-                break
-            time.sleep(HOLDOFF)
+        if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
+            with Mkchdir("%d_attachments" % id):
+                process_single_attachment(yga, html_json['attachmentsInfo'])
+    except Exception:
+        logger.exception("HTML grab failed for message %d", id)
 
 
 def archive_email(yga, message_subset=None, start=None, stop=None):
@@ -143,13 +119,12 @@ def archive_email(yga, message_subset=None, start=None, stop=None):
     try:
         # Grab messages for initial counts and permissions check
         init_messages = yga.messages()
-    except requests.exceptions.HTTPError as err:
-        if err.response.status_code == 307 or err.response.status_code==401 or err.response.status_code==403:
-            logger.error("Couldn't access Messages functionality for this group")
-            return
-        else:
-            logger.error("Unknown error archiving messages: %s", err.response.status_code)
-            return
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Messages functionality for this group")
+        return
+    except Exception:
+        logger.exception("Unknown error archiving messages")
+        return
 
     if start is not None or stop is not None:
         start = start or 1
@@ -166,7 +141,6 @@ def archive_email(yga, message_subset=None, start=None, stop=None):
 
     if not message_subset:
         message_subset = archive_messages_metadata(yga)
-        logger.debug(message_subset)
         logger.info("Group has %s messages (maximum id: %s), fetching all",
                     len(message_subset), (message_subset or ['n/a'])[-1])
 
@@ -324,35 +298,24 @@ def archive_photos(yga):
                     photoinfo = get_best_photoinfo(photo['photoInfo'])
                     fname = "%d-%s.jpg" % (photo['photoId'], pname)
                     with open(sanitise_file_name(fname), 'wb') as f:
-                        for i in range(TRIES):
-                            try:
-                                yga.download_file(photoinfo['displayURL'], f)
-                                break
-                            except requests.exceptions.HTTPError as err:
-                                logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
-                                time.sleep(HOLDOFF)
+                        try:
+                            yga.download_file(photoinfo['displayURL'], f)
+                        except requests.exceptions.HTTPError:
+                            logger.error("HTTP error, unable to download, out of retries")
 
 
 def archive_db(yga):
     logger = logging.getLogger(name="archive_db")
-    for i in range(TRIES):
-        try:
-            db_json = yga.database()
-            break
-        except requests.exceptions.HTTPError as err:
-            db_json = None
-            if err.response.status_code == 403 or err.response.status_code == 401 or err.response.status_code == 307:
-                # 401 or 403 error means Permission Denied; 307 means redirect to login. Retrying won't help.
-                break
-            logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
-            time.sleep(HOLDOFF)
-
-    if db_json is None:
+    try:
+        db_json = yga.database()
+    except yahoogroupsapi.AuthenticationError:
+        db_json = None
+        # 401 or 403 error means Permission Denied; 307 means redirect to login. Retrying won't help.
         logger.error("Couldn't access Database functionality for this group")
         return
-    else:
-        with open('databases.json', 'wb') as f:
-            json.dump(db_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+
+    with open('databases.json', 'wb') as f:
+        json.dump(db_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     n = 0
     nts = len(db_json['tables'])
@@ -369,17 +332,15 @@ def archive_db(yga):
         with open('%s_records.json' % table['tableId'], 'wb') as f:
             json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
+
 def archive_links(yga, subdir=''):
     logger = logging.getLogger(name="archive_links")
 
     try:
         links = yga.links(linkdir=subdir)
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403 or e.response.status_code == 307:
-            logger.error("User doesn't have permission to access Links in this group.")
-            return
-        else:
-            raise e
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Links functionality for this group")
+        return
 
     with open('links.json', 'wb') as f:
         json.dump(links, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
@@ -433,14 +394,11 @@ def archive_calendar(yga):
         calURL = "%s/users/%s/calendars/events/?format=json&dtstart=%s&dtend=%s&wssid=%s" % \
             (api_root, entityId, jsonStart, jsonEnd, wssid)
 
-        for i in range(TRIES):
-            try:
-                logger.info("Trying to get events between %s and %s", jsonStart, jsonEnd)
-                calContentRaw = yga.download_file(calURL)
-                break
-            except requests.exceptions.HTTPError as err:
-                logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
-                time.sleep(HOLDOFF)
+        try:
+            logger.info("Trying to get events between %s and %s", jsonStart, jsonEnd)
+            calContentRaw = yga.download_file(calURL)
+        except requests.exception.HTTPError:
+            logger.error("Unrecoverable error getting events between %s and %s: URL %s", jsonStart, jsonEnd, calURL)
 
         calContent = json.loads(calContentRaw)
         if calContent['events']['count'] > 0:
@@ -455,6 +413,7 @@ def archive_calendar(yga):
 def archive_about(yga):
     logger = logging.getLogger(name="archive_about")
     groupinfo = yga.HackGroupInfo()
+    logger.info("Downloading group description data")
 
     with open('about.json', 'wb') as f:
         json.dump(groupinfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
@@ -475,14 +434,11 @@ def archive_about(yga):
         if photoinfo is not None:
             fname = 'GroupPhoto-%s' % basename(photoinfo['displayURL']).split('?')[0]
             logger.info("Downloading the photo in group description as %s", fname)
-            for i in range(TRIES):
-                try:
-                    with open(sanitise_file_name(fname), 'wb') as f:
-                        yga.download_file(photoinfo['displayURL'], f)
-                        break
-                except requests.exceptions.HTTPError as err:
-                    logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
-                    time.sleep(HOLDOFF)
+            try:
+                with open(sanitise_file_name(fname), 'wb') as f:
+                    yga.download_file(photoinfo['displayURL'], f)
+            except yahoogroupsapi.YGAException:
+                logger.error("Unrecoverable error getting group description photo at URL %s", photoinfo['displayURL'])
 
     if statistics['groupCoverPhoto']['hasCoverImage']:
         exclude = []
@@ -493,21 +449,18 @@ def archive_about(yga):
         if photoinfo is not None:
             fname = 'GroupCover-%s' % basename(photoinfo['displayURL']).split('?')[0]
             logger.info("Downloading the group cover as %s", fname)
-            for i in range(TRIES):
-                try:
-                    with open(sanitise_file_name(fname), 'wb') as f:
-                        yga.download_file(photoinfo['displayURL'], f)
-                        break
-                except requests.exceptions.HTTPError as err:
-                    logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
-                    time.sleep(HOLDOFF)
+            try:
+                with open(sanitise_file_name(fname), 'wb') as f:
+                    yga.download_file(photoinfo['displayURL'], f)
+            except yahoogroupsapi.YGAException:
+                logger.error("Unrecoverable error getting group cover photo at URL %s", photoinfo['displayURL'])
 
 
 def archive_polls(yga):
     logger = logging.getLogger(name="archive_polls")
     try:
         pollsList = yga.polls(count=100, sort='DESC')
-    except Exception:
+    except yahoogroupsapi.AuthenticationError:
         logger.error("Couldn't access Polls functionality for this group")
         return
 
@@ -553,18 +506,11 @@ def archive_polls(yga):
 
 def archive_members(yga):
     logger = logging.getLogger(name="archive_members")
-    for i in range(TRIES):
-        try:
-            confirmed_json = yga.members('confirmed')
-            break
-        except requests.exceptions.HTTPError as err:
-            confirmed_json = None
-            if err.response.status_code == 403 or err.response.status_code == 401 or err.response.status_code == 307:
-                # 401 or 403 error means Permission Denied, 307 is redirect to login. Retrying won't help.
-                logger.error("Couldn't access Members list functionality for this group")
-                return
-            logger.error("HTTP error (sleeping before retry, try %d: %s", i, err)
-            time.sleep(HOLDOFF)
+    try:
+        confirmed_json = yga.members('confirmed')
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Members list functionality for this group")
+        return
     n_members = confirmed_json['total']
     # we can dump 100 member records at a time
     all_members = []
@@ -734,7 +680,7 @@ if __name__ == "__main__":
     if args.user_agent:
         headers['User-Agent'] = args.user_agent
 
-    yga = YahooGroupsAPI(args.group, cookie_jar, headers, delay=args.delay)
+    yga = YahooGroupsAPI(args.group, cookie_jar, headers, min_delay=args.delay)
 
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
             args.polls or args.attachments or args.members):
