@@ -23,7 +23,7 @@ Requirements:
 Usage:
 ```bash
 pip install -r requirements.txt
-./yahoo.py -ct "<T_cookie>" -cy "<Y_cookie>" "<groupid>"
+./yahoo.py -ct '<T_cookie>' -cy '<Y_cookie>' '<groupid>'
 ```
 
 You will need to get the `T` and `Y` cookie values from an authenticated
