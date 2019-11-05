@@ -31,7 +31,7 @@ The cookies should look like this, where `someLongText` and `someShortText` are 
 
 In Google Chrome these steps are required:
 1. Go to [Yahoo Groups](https://groups.yahoo.com/neo).
-2. Click the ⓘ (cicled letter i) in the address bar.
+2. Click the 🔒 padlock, or ⓘ (cicled letter i) in the address bar to the left of the website address.
 3. Click "Cookies".
 4. On the Allowed tab select "Yahoo.com" followed by "Cookies" in the tree listing.
 5. Select the T cookie and copy the Content field in place of `<T_cookie>` in the above command line.
