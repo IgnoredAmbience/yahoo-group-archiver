@@ -1,10 +1,6 @@
 yahoo-group-archiver
 ====================
 
-**Note:** Yahoo now have a ["Get My Data" tool](https://groups.yahoo.com/neo/getmydata)
-available, which may provide an alternative to this tool, although the content it provides is not
-known at the time of writing.
-
 This tool archives a Yahoo group using the non-public API used by the Yahoo Groups website UI.
 
 Features:
@@ -53,3 +49,24 @@ Using the `--cookie-file` (or `-cf`) option allows you to specify a file in whic
 loaded and saved in.
 
 Files will be placed into the directory structure groupname/{email,files,photos,databases}
+
+## Alternatives to this tool
+### Yahoo Get My Data
+Yahoo have a ["Get My Data" tool](https://groups.yahoo.com/neo/getmydata) for downloading content of groups of which you
+are a member.
+It gives you:
+* all group emails in .mbox format, _with all addresses unredacted_
+* all files (except attachments)
+* all links
+* photos and attachments _you_ sent/uploaded to the group
+No further data is returned, even if you are group owner.
+
+The primary benefit to using the Yahoo tool is for retrieving the full, unredacted email archive for a group. Archival
+methods that scrape the API from a non-moderator/owner(?) account will have email addresses in the message contents
+redacted.
+
+Downsides to using this tool are that not all group content is returned, even for group owners!
+The current lag time from requesting the data to being able to download it is about a week at the time of writing.
+
+One user of Yahoo's Get My Data described it as ["woefully
+incomplete"](https://github.com/IgnoredAmbience/yahoo-group-archiver/issues/87).
