@@ -50,6 +50,73 @@ loaded and saved in.
 
 Files will be placed into the directory structure groupname/{email,files,photos,databases}
 
+## Command Line Options
+```
+usage: yahoo.py [-h] [-ct COOKIE_T] [-cy COOKIE_Y] [-ce COOKIE_E]
+                [-cf COOKIE_FILE] [-e] [-at] [-f] [-i] [-d] [-l] [-c] [-p]
+                [-a] [-m] [--user-agent USER_AGENT] [--start START]
+                [--stop STOP] [--ids IDS [IDS ...]] [-w] [-v] [--colour]
+                [--delay DELAY]
+                group
+
+positional arguments:
+  group
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -v, --verbose
+  --colour, --color     Colour log output to terminal
+  --delay DELAY         Minimum delay between requests (default 0.2s)
+
+Authentication Options:
+  -ct COOKIE_T, --cookie_t COOKIE_T
+                        T authentication cookie from yahoo.com
+  -cy COOKIE_Y, --cookie_y COOKIE_Y
+                        Y authentication cookie from yahoo.com
+  -ce COOKIE_E, --cookie_e COOKIE_E
+                        Additional EuConsent cookie is required in EU
+  -cf COOKIE_FILE, --cookie-file COOKIE_FILE
+                        File to store authentication cookies to. Cookies
+                        passed on the command line will overwrite any already
+                        in the file.
+
+What to archive:
+  By default, all the below.
+
+  -e, --email           Only archive email and attachments (from email)
+  -at, --attachments    Only archive attachments (from attachments list)
+  -f, --files           Only archive files
+  -i, --photos          Only archive photo galleries
+  -d, --database        Only archive database
+  -l, --links           Only archive links
+  -c, --calendar        Only archive events
+  -p, --polls           Only archive polls
+  -a, --about           Only archive general info about the group
+  -m, --members         Only archive members
+
+Request Options:
+  --user-agent USER_AGENT
+                        Override the default user agent used to make requests
+
+Message Range Options:
+  Options to specify which messages to download. Use of multiple options
+  will be combined. Note: These options will also try to fetch message IDs
+  that may not exist in the group.
+
+  --start START         Email message id to start from (specifying this will
+                        cause only specified message contents to be
+                        downloaded, and not message indexes). Default to 1, if
+                        end option provided.
+  --stop STOP           Email message id to stop at (inclusive), defaults to
+                        last message ID available, if start option provided.
+  --ids IDS [IDS ...]   Get email message by ID(s). Space separated,
+                        terminated by another flag or --
+
+Output Options:
+  -w, --warc            Output WARC file of raw network requests. [Requires
+                        warcio package installed]
+```
+
 ## Alternatives to this tool
 ### Yahoo Get My Data
 Yahoo have a ["Get My Data" tool](https://groups.yahoo.com/neo/getmydata) for downloading content of groups of which you
