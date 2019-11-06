@@ -1,3 +1,5 @@
+# Warning: This module must be imported before any imports of the requests module.
+
 from __future__ import unicode_literals
 from contextlib import contextmanager
 import functools
@@ -28,10 +30,21 @@ class YGAException(Exception):
 
 
 class Unrecoverable(YGAException):
+    """An error that can not be resolved by retrying the request."""
     pass
 
 
 class AuthenticationError(Unrecoverable):
+    pass
+
+
+class NotAuthenticated(AuthenticationError):
+    """307, with Yahoo errorCode 1101, user is not logged in and attempting to read content requiring authentication."""
+    pass
+
+
+class Unauthorized(AuthenticationError):
+    """401, with Yahoo errorCode 1103, user does not have permissions to access this resource."""
     pass
 
 
@@ -143,8 +156,10 @@ class YahooGroupsAPI:
                     r = self.s.get(uri, params=opts, verify=VERIFY_HTTPS, allow_redirects=False, timeout=15)
 
                     code = r.status_code
-                    if code == 307 or code == 401 or code == 403:
-                        raise AuthenticationError()
+                    if code == 307:
+                        raise NotAuthenticated()
+                    elif code == 401 or code == 403:
+                        raise Unauthorized()
                     elif code == 404:
                         raise NotFound()
                     elif code != 200:
