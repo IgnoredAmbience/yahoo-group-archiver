@@ -12,6 +12,7 @@ import math
 import os
 import re
 import requests.exceptions
+import time
 import sys
 import unicodedata
 from os.path import basename
@@ -96,20 +97,25 @@ def archive_message_content(yga, id, status=""):
     try:
         logger.info("Fetching  raw message id: %d %s", id, status)
         raw_json = yga.messages(id, 'raw')
-        with open("%s_raw.json" % (id,), 'wb') as f:
+        fname = "%s_raw.json" % (id,)
+        with open(fname, 'wb') as f:
             json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        set_mtime(fname, int(raw_json['postDate']))
     except Exception:
         logger.exception("Raw grab failed for message %d", id)
 
     try:
         logger.info("Fetching html message id: %d %s", id, status)
         html_json = yga.messages(id)
-        with open("%s.json" % (id,), 'wb') as f:
+        fname = "%s.json" % (id,)
+        with open(fname, 'wb') as f:
             json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        set_mtime(fname, int(html_json['postDate']))
 
         if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
             with Mkchdir("%d_attachments" % id):
                 process_single_attachment(yga, html_json['attachmentsInfo'])
+            set_mtime(sanitise_folder_name("%d_attachments" % id), int(html_json['postDate']))
     except Exception:
         logger.exception("HTML grab failed for message %d", id)
 
@@ -160,15 +166,16 @@ def process_single_attachment(yga, attach):
     for frec in attach:
         logger.info("Fetching attachment '%s'", frec['filename'])
         fname = "%s-%s" % (frec['fileId'], frec['filename'])
-        with open(sanitise_file_name(fname), 'wb') as f:
+        ffname = sanitise_file_name(fname)
+        with open(ffname, 'wb') as f:
             if 'link' in frec:
                 # try and download the attachment
                 # (sometimes yahoo doesn't keep them)
+                ok = True
                 try:
                     yga.download_file(frec['link'], f=f)
                 except requests.exceptions.HTTPError as err:
                     logger.error("ERROR downloading attachment '%s': %s", frec['link'], err)
-                continue
 
             elif 'photoInfo' in frec:
                 # keep retrying until we find the largest image size we can download
@@ -196,6 +203,7 @@ def process_single_attachment(yga, attach):
             # if we failed, try the next attachment
             if not ok:
                 continue
+        set_mtime(ffname, frec['modificationDate'])
 
 
 def archive_files(yga, subdir=None):
@@ -223,6 +231,7 @@ def archive_files(yga, subdir=None):
             logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
             with open(new_name, 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
+            set_mtime(new_name, path['createdTime'])
 
         elif path['type'] == 1:
             # Directory
@@ -232,6 +241,7 @@ def archive_files(yga, subdir=None):
             with Mkchdir(new_name):     # (new_name sanitised again by Mkchdir)
                 pathURI = unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
+            set_mtime(sanitise_folder_name(new_name), path['createdTime'])
 
 
 def archive_attachments(yga):
@@ -257,6 +267,7 @@ def archive_attachments(yga):
             with open('attachmentinfo.json', 'wb') as f:
                 json.dump(a_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
                 process_single_attachment(yga, a_json['files'])
+        set_mtime(sanitise_folder_name(a['attachmentId']), a['modificationDate'])
 
 
 def archive_photos(yga):
@@ -297,11 +308,14 @@ def archive_photos(yga):
 
                     photoinfo = get_best_photoinfo(photo['photoInfo'])
                     fname = "%d-%s.jpg" % (photo['photoId'], pname)
-                    with open(sanitise_file_name(fname), 'wb') as f:
+                    ffname = sanitise_file_name(fname)
+                    with open(ffname, 'wb') as f:
                         try:
                             yga.download_file(photoinfo['displayURL'], f)
                         except requests.exceptions.HTTPError:
                             logger.error("HTTP error, unable to download, out of retries")
+                    set_mtime(ffname, photo['creationDate'])
+        set_mtime(sanitise_folder_name(folder), a['modificationDate'])
 
 
 def archive_db(yga):
@@ -327,10 +341,12 @@ def archive_db(yga):
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
         with open(sanitise_file_name(name), 'wb') as f:
             yga.download_file(uri, f)
+        set_mtime(sanitise_file_name(name), table['dateLastModified'])
 
         records_json = yga.database(table['tableId'], 'records')
         with open('%s_records.json' % table['tableId'], 'wb') as f:
             json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        set_mtime('%s_records.json' % table['tableId'], table['dateLastModified'])
 
 
 def archive_links(yga, subdir=''):
@@ -501,6 +517,7 @@ def archive_polls(yga):
 
         with open(fname, 'wb') as f:
             json.dump(pollInfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        set_mtime(fname, pollInfo['dateCreated'])
         n += 1
 
 
@@ -529,6 +546,12 @@ def archive_members(yga):
 # Utility Functions
 ####
 
+def set_mtime(path, mtime):
+    """
+    Sets the last-modified date of a file or directory
+    """
+    atime = time.time()
+    os.utime(path, (atime, mtime))
 
 def sanitise_file_name(value):
     """
