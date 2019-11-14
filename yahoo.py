@@ -154,6 +154,102 @@ def archive_email(yga, message_subset=None, start=None, stop=None):
             logger.exception("Failed to get message id: %d", id)
             continue
 
+def archive_topics(yga, start=None):
+    logger = logging.getLogger('archive_topics')
+
+	# Grab messages for initial counts and permissions check
+    try:
+        init_messages = yga.messages()
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Messages functionality for this group")
+        return
+
+    expectedTopics = init_messages['numTopics']
+    totalRecords = init_messages['totalRecords']
+	# There may be fewer than totalRecords messages, likely due to deleted messages.
+    logger.info("Expecting %d topics and up to %d messages.",expectedTopics,totalRecords)
+
+    # Start at the final message if none specified.
+    if start is None:
+        start = init_messages['lastRecordId']
+	
+	# Grab the starting message and find its topic ID.
+    topicId = 0
+    try:
+        logger.info("Fetching html message id: %d", start)
+        html_json = yga.messages(start)
+        topicId = html_json.get("topicId")
+        logger.info("The message is part of topic ID %d", topicId)
+    except Exception:
+        logger.exception("HTML grab failed for message %d", start)
+        return
+
+    archivedTopicsCount = 0
+    totalMessagesInTopics = 0
+    nextTopicId = 0
+    prevTopicId = 0
+
+	# Grab the first topic.
+    try:
+        logger.info("Fetching first topic, id %d (1 of %d)", topicId, expectedTopics)
+        topic_json = yga.topics(topicId,maxResults=999999)
+        with open("%s.json" % (topicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        archivedTopicsCount = archivedTopicsCount + 1
+        totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
+        nextTopicId = topic_json.get("nextTopicId")
+        prevTopicId = topic_json.get("prevTopicId")
+        logger.info("Fetched first topic ID %d with message count %d.",topicId,topic_json['totalMsgInTopic'])
+
+        if nextTopicId > 0:
+            logger.info("The next topic ID is %d.",nextTopicId)
+        else:
+            logger.info("There are no later topics.")
+
+        if prevTopicId > 0:
+            logger.info("The previous topic ID is %d.",prevTopicId)
+        else:
+            logger.info("There are no previous topics.")
+    except:
+        logger.exception("First topic grab failed for topic ID %d", topicId)
+        return
+        
+    # Grab all previous topics.
+    while prevTopicId > 0:
+        try:
+            archivedTopicsCount = archivedTopicsCount + 1
+            logger.info("Fetching topic ID %d (%d of %d)", prevTopicId,archivedTopicsCount,expectedTopics)
+            topic_json = yga.topics(prevTopicId,maxResults=999999)
+            with open("%s.json" % (prevTopicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            
+            totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
+            prevTopicId = topic_json.get("prevTopicId")
+            logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",prevTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
+            if prevTopicId <= 0:
+                logger.info("There are no previous topics.")
+        except:
+            logger.exception("Topic grab failed for topic ID %d", prevTopicId)
+            return
+
+    # Grab all later topics.
+    while nextTopicId > 0:
+        try:
+            archivedTopicsCount = archivedTopicsCount + 1
+            logger.info("Fetching topic ID %d (%d of %d)", nextTopicId,archivedTopicsCount,expectedTopics)
+            topic_json = yga.topics(nextTopicId,maxResults=999999)
+            with open("%s.json" % (nextTopicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            
+            totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
+            nextTopicId = topic_json.get("nextTopicId")
+            logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",nextTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
+            if nextTopicId <= 0:
+                logger.info("There are no later topics.")
+        except:
+            logger.exception("Topic grab failed for topic ID %d", nextTopicId)
+            return
+
 
 def process_single_attachment(yga, attach):
     logger = logging.getLogger(name="process_single_attachment")
@@ -611,6 +707,8 @@ if __name__ == "__main__":
                     help='Only archive files')
     po.add_argument('-i', '--photos', action='store_true',
                     help='Only archive photo galleries')
+    po.add_argument('-t', '--topics', action='store_true',
+                    help='Only archive topics')
     po.add_argument('-d', '--database', action='store_true',
                     help='Only archive database')
     po.add_argument('-l', '--links', action='store_true',
@@ -683,9 +781,9 @@ if __name__ == "__main__":
     yga = YahooGroupsAPI(args.group, cookie_jar, headers, min_delay=args.delay)
 
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
-            args.polls or args.attachments or args.members):
+            args.polls or args.attachments or args.members or args.topics):
         args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = \
-            args.polls = args.attachments = args.members = True
+            args.polls = args.attachments = args.members = args.topics = True
 
     with Mkchdir(args.group, sanitize=False):
         log_file_handler = logging.FileHandler('archive.log')
@@ -713,6 +811,9 @@ if __name__ == "__main__":
         if args.photos:
             with Mkchdir('photos'):
                 archive_photos(yga)
+        if args.topics:
+            with Mkchdir('topics'):
+                archive_topics(yga,start=args.start)
         if args.database:
             with Mkchdir('databases'):
                 archive_db(yga)
