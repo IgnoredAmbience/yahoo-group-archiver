@@ -62,6 +62,7 @@ class YahooGroupsAPI:
     API_VERSIONS = {
             'HackGroupInfo': 'v1',  # In reality, this will get the root endpoint
             'messages': 'v1',
+			'topics': 'v1',
             'files': 'v2',
             'albums': 'v2',         # v3 is available, but changes where photos are located in json
             'database': 'v1',
