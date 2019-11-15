@@ -169,21 +169,30 @@ def archive_topics(yga, start=None):
 	# There may be fewer than totalRecords messages, likely due to deleted messages.
     logger.info("Expecting %d topics and up to %d messages.",expectedTopics,totalRecords)
 
-    # Start at the final message if none specified.
-    if start is None:
-        start = init_messages['lastRecordId']
-	
-	# Grab the starting message and find its topic ID.
+	# To start the process, we need to download a single message to get a valid topic ID.
+	# If the --start arguement is used, try that message first. Otherwise, start at message ID 1.
+	# Go until we find a message or reach the final record.
+	# Message 1 should be available unless they deleted the first message ever posted.
+    msgNum = 1
+    if start is not None:
+        msgNum = start
     topicId = 0
-    try:
-        logger.info("Fetching html message id: %d", start)
-        html_json = yga.messages(start)
-        topicId = html_json.get("topicId")
-        logger.info("The message is part of topic ID %d", topicId)
-    except Exception:
-        logger.exception("HTML grab failed for message %d", start)
-        return
+    foundMessage = False
+    while (msgNum <= totalRecords) and (foundMessage is False):
+        try:
+            logger.info("Fetching html message id: %d", msgNum)
+            html_json = yga.messages(msgNum)
+            topicId = html_json.get("topicId")
+            logger.info("The message is part of topic ID %d", topicId)
+            foundMessage = True
+        except:
+            logger.exception("HTML grab failed for message %d", msgNum)
+            msgNum += 1
 
+    if foundMessage is False:
+        logger.info("No messages available.")
+        return
+	
     archivedTopicsCount = 0
     totalMessagesInTopics = 0
     nextTopicId = 0
@@ -213,8 +222,10 @@ def archive_topics(yga, start=None):
     except:
         logger.exception("First topic grab failed for topic ID %d", topicId)
         return
-        
-    # Grab all previous topics.
+    
+	# Get all previous and later topics. Topic ordering seems to be based on which topics were replied to most recently.
+
+    # Grab all previous topics from the starting topic back. If starting at message 1, there may not be any.
     while prevTopicId > 0:
         try:
             archivedTopicsCount = archivedTopicsCount + 1
@@ -224,15 +235,15 @@ def archive_topics(yga, start=None):
                 json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
             
             totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
-            prevTopicId = topic_json.get("prevTopicId")
             logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",prevTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
+            prevTopicId = topic_json.get("prevTopicId")
             if prevTopicId <= 0:
                 logger.info("There are no previous topics.")
         except:
             logger.exception("Topic grab failed for topic ID %d", prevTopicId)
             return
 
-    # Grab all later topics.
+    # Grab all later topics from the starting topic forward.
     while nextTopicId > 0:
         try:
             archivedTopicsCount = archivedTopicsCount + 1
@@ -242,8 +253,8 @@ def archive_topics(yga, start=None):
                 json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
             
             totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
-            nextTopicId = topic_json.get("nextTopicId")
             logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",nextTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
+            nextTopicId = topic_json.get("nextTopicId")
             if nextTopicId <= 0:
                 logger.info("There are no later topics.")
         except:
