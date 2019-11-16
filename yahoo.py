@@ -199,6 +199,7 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False):
     nextTopicId = 0
     prevTopicId = 0
     retrievedMessageIds = list()
+    messageIdsWithAttachments = list()
 
 	# Grab the first topic.
     try:
@@ -212,9 +213,17 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False):
         prevTopicId = topic_json.get("prevTopicId")
         logger.info("Fetched first topic ID %d with message count %d.",topicId,topic_json['totalMsgInTopic'])
 
+        
         messages = topic_json.get("messages")
         for message in messages:
-            retrievedMessageIds.append(message.get("msgId"))
+            # Track what messages we've gotten.
+            msgId = message.get("msgId")
+            retrievedMessageIds.append(msgId)
+            
+            # Download messsage attachments if there are any.
+            if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
+                with Mkchdir("%d_attachments" % msgId):
+                    process_single_attachment(yga, message['attachmentsInfo'])
 
         if nextTopicId > 0:
             logger.info("The next topic ID is %d.",nextTopicId)
@@ -257,7 +266,14 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False):
 
             messages = topic_json.get("messages")
             for message in messages:
-                retrievedMessageIds.append(message.get("msgId"))
+                # Track what messages we've gotten.
+                msgId = message.get("msgId")
+                retrievedMessageIds.append(msgId)
+            
+                # Download messsage attachments if there are any.
+                if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
+                    with Mkchdir("%d_attachments" % msgId):
+                        process_single_attachment(yga, message['attachmentsInfo'])
 
             prevTopicId = topic_json.get("prevTopicId")
             if prevTopicId <= 0:
@@ -287,7 +303,14 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False):
 
             messages = topic_json.get("messages")
             for message in messages:
-                retrievedMessageIds.append(message.get("msgId"))
+                # Track what messages we've gotten.
+                msgId = message.get("msgId")
+                retrievedMessageIds.append(msgId)
+            
+                # Download messsage attachments if there are any.
+                if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
+                    with Mkchdir("%d_attachments" % msgId):
+                        process_single_attachment(yga, message['attachmentsInfo'])
 
             nextTopicId = topic_json.get("nextTopicId")
             if nextTopicId <= 0:
