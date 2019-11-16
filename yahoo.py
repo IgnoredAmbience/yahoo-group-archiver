@@ -154,7 +154,7 @@ def archive_email(yga, message_subset=None, start=None, stop=None):
             logger.exception("Failed to get message id: %d", id)
             continue
 
-def archive_topics(yga, start=None):
+def archive_topics(yga, start=None, alsoDownloadingEmail = False):
     logger = logging.getLogger('archive_topics')
 
 	# Grab messages for initial counts and permissions check
@@ -198,6 +198,7 @@ def archive_topics(yga, start=None):
     totalMessagesInTopics = 0
     nextTopicId = 0
     prevTopicId = 0
+    retrievedMessageIds = list()
 
 	# Grab the first topic.
     try:
@@ -211,6 +212,10 @@ def archive_topics(yga, start=None):
         prevTopicId = topic_json.get("prevTopicId")
         logger.info("Fetched first topic ID %d with message count %d.",topicId,topic_json['totalMsgInTopic'])
 
+        messages = topic_json.get("messages")
+        for message in messages:
+            retrievedMessageIds.append(message.get("msgId"))
+
         if nextTopicId > 0:
             logger.info("The next topic ID is %d.",nextTopicId)
         else:
@@ -221,12 +226,19 @@ def archive_topics(yga, start=None):
         else:
             logger.info("There are no previous topics.")
     except:
-        logger.exception("First topic grab failed for topic ID %d", topicId)
-        return
+        logger.exception("First topic grab failed for topic ID %d.", topicId)
+		# Fall back to a full e-mail download, unless we're already doing that anyway.
+        if alsoDownloadingEmail is False:
+            logger.exception("Falling back to full e-mail download.")
+            with Mkchdir('email'):
+                archive_email(yga)
+        
     
 	# Get all previous and later topics. Topic ordering seems to be based on which topics were replied to most recently.
+    topicRetrievalError = False
 
     # Grab all previous topics from the starting topic back. If starting at message 1, there may not be any.
+    logger.info("Retrieving previous topics.")
     while prevTopicId > 0:
         try:
             archivedTopicsCount = archivedTopicsCount + 1
@@ -242,14 +254,21 @@ def archive_topics(yga, start=None):
             
             totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
             logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",prevTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
+
+            messages = topic_json.get("messages")
+            for message in messages:
+                retrievedMessageIds.append(message.get("msgId"))
+
             prevTopicId = topic_json.get("prevTopicId")
             if prevTopicId <= 0:
                 logger.info("There are no previous topics.")
         except:
             logger.exception("Topic grab failed for topic ID %d", prevTopicId)
-            return
+            topicRetrievalError = True
+            break
 
     # Grab all later topics from the starting topic forward.
+    logger.info("Retrieving later topics.")
     while nextTopicId > 0:
         try:
             archivedTopicsCount = archivedTopicsCount + 1
@@ -265,12 +284,30 @@ def archive_topics(yga, start=None):
             
             totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
             logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",nextTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
+
+            messages = topic_json.get("messages")
+            for message in messages:
+                retrievedMessageIds.append(message.get("msgId"))
+
             nextTopicId = topic_json.get("nextTopicId")
             if nextTopicId <= 0:
                 logger.info("There are no later topics.")
         except:
             logger.exception("Topic grab failed for topic ID %d", nextTopicId)
-            return
+            topicRetrievalError = True
+            break
+
+    # If we couldn't retrieve all topics, determine what potential message IDs we don't already have, then do an e-mail download of only those.
+    if topicRetrievalError is True:
+        logger.info("Failed to retrieve all topics. Falling back to e-mail download for unretrieved messages.")
+        potentialMessages = list(range(1,totalRecords))
+        unretrievedMessages = list(set(potentialMessages).difference(retrievedMessageIds))
+        logger.info("retrievedMessageIds: %s", str(retrievedMessageIds))
+        logger.info("potentialMessages: %s",str(potentialMessages))
+        logger.info("unretrievedMessages: %s",str(unretrievedMessages))
+        with Mkchdir('email'):
+            archive_email(yga,unretrievedMessages)
+
 
 
 def process_single_attachment(yga, attach):
@@ -835,7 +872,7 @@ if __name__ == "__main__":
                 archive_photos(yga)
         if args.topics:
             with Mkchdir('topics'):
-                archive_topics(yga,start=args.start)
+                archive_topics(yga,start=args.start,alsoDownloadingEmail = args.email)
         if args.database:
             with Mkchdir('databases'):
                 archive_db(yga)
