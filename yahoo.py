@@ -167,6 +167,7 @@ def archive_topics(yga, start=None):
     expectedTopics = init_messages['numTopics']
     totalRecords = init_messages['totalRecords']
 	# There may be fewer than totalRecords messages, likely due to deleted messages.
+	# We also found a group where expectedTopics was 1 less than the actual number of topics available, but the script still downloaded everything.
     logger.info("Expecting %d topics and up to %d messages.",expectedTopics,totalRecords)
 
 	# To start the process, we need to download a single message to get a valid topic ID.
@@ -204,7 +205,7 @@ def archive_topics(yga, start=None):
         topic_json = yga.topics(topicId,maxResults=999999)
         with open("%s.json" % (topicId,), 'wb') as f:
                 json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-        archivedTopicsCount = archivedTopicsCount + 1
+        archivedTopicsCount = archivedTopicsCount + 1		
         totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
         nextTopicId = topic_json.get("nextTopicId")
         prevTopicId = topic_json.get("prevTopicId")
@@ -229,6 +230,11 @@ def archive_topics(yga, start=None):
     while prevTopicId > 0:
         try:
             archivedTopicsCount = archivedTopicsCount + 1
+			
+            if archivedTopicsCount > totalRecords + 100:
+                logger.info("We've archived %d topics, but are expecting at most %d messages. Stopping due to suspected infinite loop.",archivedTopicsCount,totalRecords)
+                return
+
             logger.info("Fetching topic ID %d (%d of %d)", prevTopicId,archivedTopicsCount,expectedTopics)
             topic_json = yga.topics(prevTopicId,maxResults=999999)
             with open("%s.json" % (prevTopicId,), 'wb') as f:
@@ -247,6 +253,11 @@ def archive_topics(yga, start=None):
     while nextTopicId > 0:
         try:
             archivedTopicsCount = archivedTopicsCount + 1
+
+            if archivedTopicsCount > totalRecords + 100:
+                logger.info("We've archived %d topics, but are expecting at most %d messages. Stopping due to suspected infinite loop.",archivedTopicsCount,totalRecords)
+                return
+
             logger.info("Fetching topic ID %d (%d of %d)", nextTopicId,archivedTopicsCount,expectedTopics)
             topic_json = yga.topics(nextTopicId,maxResults=999999)
             with open("%s.json" % (nextTopicId,), 'wb') as f:
