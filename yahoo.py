@@ -425,7 +425,7 @@ def archive_files(yga, subdir=None):
 def archive_attachments(yga):
     logger = logging.getLogger(name="archive_attachments")
     try:
-        attachments_json = yga.attachments()
+        attachments_json = yga.attachments(count=999999)
     except Exception:
         logger.error("Couldn't access Attachments functionality for this group")
         return
