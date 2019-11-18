@@ -359,32 +359,32 @@ def process_single_attachment(yga, attach):
                 continue
 
             elif 'photoInfo' in frec:
-                # keep retrying until we find the largest image size we can download
-                # (sometimes yahoo doesn't keep the originals)
-                exclude = []
-                ok = False
-                while not ok:
-                    # find best photoinfo (largest size)
-                    photoinfo = get_best_photoinfo(frec['photoInfo'], exclude)
+                process_single_photo(frec['photoInfo'],f)
 
-                    if photoinfo is None:
-                        logger.error("Can't find a viable copy of this photo")
-                        break
 
-                    # try and download it
-                    try:
-                        yga.download_file(photoinfo['displayURL'], f=f)
-                        ok = True
-                    except requests.exceptions.HTTPError as err:
-                        # yahoo says no. exclude this size and try for another.
-                        logger.error("ERROR downloading '%s' variant %s: %s", photoinfo['displayURL'],
-                                     photoinfo['photoType'], err)
-                        # exclude.append(photoinfo['photoType'])
+def process_single_photo(photoinfo,f):
+    logger = logging.getLogger(name="process_single_photo")
+    # keep retrying until we find the largest image size we can download
+    # (sometimes yahoo doesn't keep the originals)
+    exclude = []
+    ok = False
+    while not ok:
+        # find best photoinfo (largest size)
+        bestPhotoinfo = get_best_photoinfo(photoinfo, exclude)
 
-            # if we failed, try the next attachment
-            if not ok:
-                continue
+        if bestPhotoinfo is None:
+            logger.error("Can't find a viable copy of this photo")
+            break
 
+        # try and download it
+        try:
+            yga.download_file(bestPhotoinfo['displayURL'], f=f)
+            ok = True
+        except requests.exceptions.HTTPError as err:
+            # yahoo says no. exclude this size and try for another.
+            logger.error("ERROR downloading '%s' variant %s: %s", bestPhotoinfo['displayURL'],
+                         bestPhotoinfo['photoType'], err)
+            exclude.append(bestPhotoinfo['photoType'])
 
 def archive_files(yga, subdir=None):
     logger = logging.getLogger(name="archive_files")
@@ -483,13 +483,9 @@ def archive_photos(yga):
                     pname = html_unescape(photo['photoName'])
                     logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
 
-                    photoinfo = get_best_photoinfo(photo['photoInfo'])
                     fname = "%d-%s.jpg" % (photo['photoId'], pname)
                     with open(sanitise_file_name(fname), 'wb') as f:
-                        try:
-                            yga.download_file(photoinfo['displayURL'], f)
-                        except requests.exceptions.HTTPError:
-                            logger.error("HTTP error, unable to download, out of retries")
+                        process_single_photo(photo['photoInfo'],f)
 
 
 def archive_db(yga):
@@ -612,36 +608,23 @@ def archive_about(yga):
 
         json.dump(statistics, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
+    exclude = []
     # Check if we really have a photo in the group description
     if ('photoInfo' in statistics['groupHomePage'] and statistics['groupHomePage']['photoInfo']):
-        exclude = []
-
-        # find best photoinfo (largest size)
-        photoinfo = get_best_photoinfo(statistics['groupHomePage']['photoInfo'], exclude)
-
-        if photoinfo is not None:
-            fname = 'GroupPhoto-%s' % basename(photoinfo['displayURL']).split('?')[0]
-            logger.info("Downloading the photo in group description as %s", fname)
-            try:
-                with open(sanitise_file_name(fname), 'wb') as f:
-                    yga.download_file(photoinfo['displayURL'], f)
-            except yahoogroupsapi.YGAException:
-                logger.error("Unrecoverable error getting group description photo at URL %s", photoinfo['displayURL'])
+        # Base filename on largest photo size.
+        bestphotoinfo = get_best_photoinfo(statistics['groupHomePage']['photoInfo'], exclude)
+        fname = 'GroupPhoto-%s' % basename(bestphotoinfo['displayURL']).split('?')[0]
+        logger.info("Downloading the photo in group description as %s", fname)
+        with open(sanitise_file_name(fname), 'wb') as f:
+            process_single_photo(statistics['groupHomePage']['photoInfo'],f)
 
     if statistics['groupCoverPhoto']['hasCoverImage']:
-        exclude = []
-
-        # find best photoinfo (largest size)
-        photoinfo = get_best_photoinfo(statistics['groupCoverPhoto']['photoInfo'], exclude)
-
-        if photoinfo is not None:
-            fname = 'GroupCover-%s' % basename(photoinfo['displayURL']).split('?')[0]
-            logger.info("Downloading the group cover as %s", fname)
-            try:
-                with open(sanitise_file_name(fname), 'wb') as f:
-                    yga.download_file(photoinfo['displayURL'], f)
-            except yahoogroupsapi.YGAException:
-                logger.error("Unrecoverable error getting group cover photo at URL %s", photoinfo['displayURL'])
+        # Base filename on largest photo size.
+        bestphotoinfo = get_best_photoinfo(statistics['groupCoverPhoto']['photoInfo'], exclude)
+        fname = 'GroupCover-%s' % basename(bestphotoinfo['displayURL']).split('?')[0]
+        logger.info("Downloading the group cover as %s", fname)
+        with open(sanitise_file_name(fname), 'wb') as f:
+            process_single_photo(statistics['groupCoverPhoto']['photoInfo'],f)
 
 
 def archive_polls(yga):
