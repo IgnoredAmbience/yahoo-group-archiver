@@ -63,7 +63,7 @@ if not PYTHON:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20191114.01'
+VERSION = '20191118.00'
 USER_AGENT = 'ArchiveTeam'
 TRACKER_ID = 'yahoo-groups-api'
 # TRACKER_HOST = 'tracker.archiveteam.org'  #prod-env
@@ -216,7 +216,18 @@ class YgaArgs(object):
         item['item_type'] = item_type
         item['item_value'] = item_value
 
-        if item_type.startswith('yga_group_id'):
+        http_client = httpclient.HTTPClient()
+
+        if item_type == 'yga_group':
+            yga_args.append(item_value)
+        elif item_type == 'yga_group_cookie':
+            cookie_json = http_client.fetch('https://df58.host.cs.st-andrews.ac.uk/yahoogroups/cookieget/' + item_value, method='GET')
+            if response.code != 200:
+                raise ValueError('Got bad status code {}.'.format(response.code))
+
+            cookies = json.loads(cookie_json.body.decode('utf-8', 'ignore'))
+            yga_args.extend(['-ct ', '"%s"' % cookies["cookie_Y"])
+            yga_args.extend(['-cy ', '"%s"' % cookies["cookie_T"])
             yga_args.append(item_value)
         else:
             raise Exception('Unknown item')
