@@ -6,7 +6,6 @@ pipeline edition
 
 git clone https://github.com/marked/yahoo-group-archiver.git  
 cd yahoo-group-archiver  
-git checkout warrior-pipeline3  
 
 Usage:
 ```bash

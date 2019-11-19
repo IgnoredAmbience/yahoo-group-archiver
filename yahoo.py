@@ -35,7 +35,7 @@ else:
 # WARC metadata params
 
 WARC_META_PARAMS = OrderedDict([('software', 'yahoo-group-archiver'),
-                                ('version','20191118.01'),
+                                ('version','20191118.02'),
                                 ('format', 'WARC File Format 1.0'),
                                 ])
 
