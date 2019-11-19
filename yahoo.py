@@ -240,7 +240,11 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
     except:
         logger.exception("First topic grab failed for topic ID %d.", topicId)
 		# Fall back to a full e-mail download, unless we're already doing that anyway.
-        if alsoDownloadingEmail is False:
+        if (alsoDownloadingEmail is False) and (getRaw is False):
+            logger.exception("Falling back to html e-mail download.")
+            with Mkchdir('email'):
+                archive_email(yga,skipRaw=True)
+        elif (alsoDownloadingEmail is False) and (getRaw is True):
             logger.exception("Falling back to full e-mail download.")
             with Mkchdir('email'):
                 archive_email(yga)
@@ -332,14 +336,20 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
 
     # If we couldn't retrieve all topics, determine what potential message IDs we don't already have, then do an e-mail download of only those.
     if topicRetrievalError is True and alsoDownloadingEmail is False:
-        logger.info("Failed to retrieve all topics. Falling back to e-mail download for unretrieved messages.")
+        logger.info("Failed to retrieve all topics. ")
         potentialMessages = list(range(1,totalRecords))
         unretrievedMessages = list(set(potentialMessages).difference(retrievedMessageIds))
         logger.info("retrievedMessageIds: %s", str(retrievedMessageIds))
         logger.info("potentialMessages: %s",str(potentialMessages))
         logger.info("unretrievedMessages: %s",str(unretrievedMessages))
-        with Mkchdir('email'):
-            archive_email(yga,unretrievedMessages)
+        if getRaw is False:
+            logger.info("Falling back to html e-mail download for unretrieved messages.")
+            with Mkchdir('email'):
+                archive_email(yga,unretrievedMessages,skipRaw=True)
+        else:
+            with Mkchdir('email'):
+                logger.info("Falling back to full e-mail download for unretrieved messages.")
+                archive_email(yga,unretrievedMessages)
 
 
 
