@@ -63,7 +63,7 @@ if not PYTHON:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20191118.00'
+VERSION = '20191118.01'
 USER_AGENT = 'ArchiveTeam'
 TRACKER_ID = 'yahoo-groups-api'
 # TRACKER_HOST = 'tracker.archiveteam.org'  #prod-env
@@ -148,7 +148,7 @@ class PrepareDirectories(SimpleTask):
 
         item['item_dir'] = dirname
         item['start_time'] = start_time
-        item['warc_file_base'] = '%s-%s-%s'    % (self.warc_prefix, escaped_item_name[:50],      start_time)
+        item['warc_file_base'] = '%s-%s-%s-%s'    % (self.warc_prefix, escaped_item_name[:50],VERSION,start_time)
 
         #open('%(item_dir)s/%(warc_file_base)s.warc.gz' % item, 'w').close()
         #open('%(item_dir)s/%(warc_file_base)s.defer-urls.txt' % item, 'w').close()
@@ -206,7 +206,7 @@ class YgaArgs(object):
             '../../../yahoo.py',
              '-a',
              '-t',
-            '-w'
+             '-w'
         ]
 
         item_name = item['item_name']
@@ -218,16 +218,16 @@ class YgaArgs(object):
 
         http_client = httpclient.HTTPClient()
 
-        if item_type == 'yga_group':
+        if item_type == 'group':
             yga_args.append(item_value)
-        elif item_type == 'yga_group_cookie':
-            cookie_json = http_client.fetch('https://df58.host.cs.st-andrews.ac.uk/yahoogroups/cookieget/' + item_value, method='GET')
-            if response.code != 200:
+        elif item_type == 'group_cookie':
+            cookie_json = http_client.fetch('https://df58.host.cs.st-andrews.ac.uk/yahoogroups/cookieget/' + item_value + '/', method='GET')
+            if cookie_json.code != 200:
                 raise ValueError('Got bad status code {}.'.format(response.code))
 
             cookies = json.loads(cookie_json.body.decode('utf-8', 'ignore'))
-            yga_args.extend(['-ct ', '"%s"' % cookies["cookie_Y"])
-            yga_args.extend(['-cy ', '"%s"' % cookies["cookie_T"])
+            yga_args.extend(['-cy', "%s" % cookies["cookie_Y"]])
+            yga_args.extend(['-ct', "%s" % cookies["cookie_T"]])
             yga_args.append(item_value)
         else:
             raise Exception('Unknown item')
@@ -282,7 +282,6 @@ project = Project(
 
 pipeline = Pipeline(
     CheckIP(),
-    CheckBan(),
     GetItemFromTracker('http://%s/%s' % (TRACKER_HOST, TRACKER_ID), downloader, VERSION),
     PrepareDirectories(warc_prefix='yg-api'),
     YgaDownload(
