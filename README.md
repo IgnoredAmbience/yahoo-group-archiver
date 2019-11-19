@@ -1,29 +1,16 @@
-yahoo-group-archiver
+yahoo-group-archiver  
+pipeline edition  
 ====================
 
-Archives a Yahoo group using the non-public API
+* Python 3.6 - 3.8  
 
-Features
-* Saves full email content
-* Downloads attachments as separate files
-* Fetch all files
-* Fetch all photos
-* Fetch all database tables
-* Fetch all links
-* Fetch all events in the calendar
-* Fetch all polls
-
-Requirements:
-* Python 2.7?
-* Requests library
+git clone https://github.com/marked/yahoo-group-archiver.git  
+cd yahoo-group-archiver  
 
 Usage:
 ```bash
-pip install requests
-./yahoo.py -ct 'YOUR_T_COOKIE' -cy 'YOUR_Y_COOKIE' groupname
+pip3 install -r requirements.txt
+run-pipeline3 ./pipeline.py $USERNAME
 ```
-
-You can extract the T and Y cookie from your browser.
-
-
-Files will be placed into the directory structure groupname/{email,files,photos,databases,links,calendar,polls}
+Watch:  
+http://tracker-test.ddns.net/yahoo-groups-api/

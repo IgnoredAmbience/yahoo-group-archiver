@@ -1,97 +1,181 @@
-import requests
-from HTMLParser import HTMLParser
-import json
+# Warning: This module must be imported before any imports of the requests module.
+
+from __future__ import unicode_literals
+from contextlib import contextmanager
 import functools
+import logging
+import os
+import random
 import time
 
-class YahooGroupsAPI:
-    BASE_URI="https://groups.yahoo.com/api"
-    LOGIN_URI="https://login.yahoo.com/"
+try:
+    from warcio.capture_http import capture_http
+    warcio_failed = False
+except ImportError as e:
+    warcio_failed = e
 
-    API_VERSIONS={
-            'HackGroupInfo': 'v1', #In reality, this will get the root endpoint
+import requests  # Must be imported after capture_http
+from requests.exceptions import Timeout, ConnectionError
+
+VERIFY_HTTPS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yahoogroups_cert_chain.pem')
+
+
+@contextmanager
+def dummy_contextmanager(*kargs, **kwargs):
+    yield
+
+
+class YGAException(Exception):
+    pass
+
+
+class Unrecoverable(YGAException):
+    """An error that can not be resolved by retrying the request."""
+    pass
+
+
+class AuthenticationError(Unrecoverable):
+    pass
+
+
+class NotAuthenticated(AuthenticationError):
+    """307, with Yahoo errorCode 1101, user is not logged in and attempting to read content requiring authentication."""
+    pass
+
+
+class Unauthorized(AuthenticationError):
+    """401, with Yahoo errorCode 1103, user does not have permissions to access this resource."""
+    pass
+
+
+class NotFound(Unrecoverable):
+    pass
+
+
+class Recoverable(YGAException):
+    pass
+
+
+class YahooGroupsAPI:
+    BASE_URI = "https://groups.yahoo.com/api"
+
+    API_VERSIONS = {
+            'HackGroupInfo': 'v1',  # In reality, this will get the root endpoint
             'messages': 'v1',
+            'topics': 'v1',
             'files': 'v2',
-            'albums': 'v2', # v3 is available, but changes where photos are located in json
+            'albums': 'v2',         # v3 is available, but changes where photos are located in json
             'database': 'v1',
             'links': 'v1',
             'statistics': 'v1',
-            'polls': 'v1'
+            'polls': 'v1',
+            'attachments': 'v1',
+            'members': 'v1'
             }
 
-    s = None
+    logger = logging.getLogger(name="YahooGroupsAPI")
 
-    def __init__(self, group, cookie_t, cookie_y, cookie_euconsent):
+    s = None
+    ww = None
+    http_context = dummy_contextmanager
+
+    def __init__(self, group, cookie_jar=None, headers={}, min_delay=0, retries=10):
         self.s = requests.Session()
         self.group = group
-        jar = requests.cookies.RequestsCookieJar()
-        jar.set('T', cookie_t)
-        jar.set('Y', cookie_y)
-        jar.set('EuConsent', cookie_euconsent);
-        self.s.cookies = jar
+        self.min_delay = min_delay
+        self.retries = retries
+
+        if cookie_jar:
+            self.s.cookies = cookie_jar
         self.s.headers = {'Referer': self.BASE_URI}
+        self.s.headers.update(headers)
+
+    def set_warc_writer(self, ww):
+        if ww is not None and warcio_failed:
+            self.logger.fatal("Attempting to log to warc, but warcio failed to import.")
+            raise warcio_failed
+        self.ww = ww
+        self.http_context = capture_http
 
     def __getattr__(self, name):
+        """ Return an API stub function for the API endpoint called name.
+
+        Examples:
+           yga.messages(123, 'raw') -> yga.get_json('messages')(123, 'raw') -> calls API endpoint '/messages/123/raw'
+           yga.messages(count=50) -> yga.get_json('messages')(count=50) -> calls API endpoint '/messages?count=50'
         """
-        Easy, human-readable REST stub, eg:
-           yga.messages(123, 'raw')
-           yga.messages(count=50)
-        """
-        if name not in self.API_VERSIONS:
-            raise AttributeError()
+        self.API_VERSIONS[name]  # Tests that name is defined, and raises an AttributeError if not
         return functools.partial(self.get_json, name)
 
-    def login(self, user, password):
-        data = {'login': user, 'passwd': password}
-        r = self.s.post(self.LOGIN_URI, data=data, timeout=10)
+    def backoff_time(self, attempt):
+        """Calculate backoff time from minimum delay and attempt number.
+           Currently no good reason for choice of backoff, except not to increase too rapidly."""
+        return max(self.min_delay, random.uniform(0, attempt))
 
-        # On success, 302 redirect setting lots of cookies to 200 /config/verify
-        # On fail, 302 redirect setting 1 cookie to 200 /m
-        # For now check that we 'enough' cookies set.
-        return len(self.s.cookies) > 2
+    def download_file(self, url, f=None, **args):
+        with self.http_context(self.ww):
+            time.sleep(self.min_delay)
 
-    def get_file(self, url):
-        r = self.s.get(url)
-        return r.content
+            for attempt in range(self.retries):
+                r = self.s.get(url, verify=VERIFY_HTTPS, **args)
+                if r.status_code == 400 or r.status_code == 500:
+                    if r.status_code == 400 and 'malware' in r.text:
+                        self.logger.warning("Got 400 error indicating malware for %s, skipping", url)
+                        break
+                    else:
+                        self.logger.info("Got %d error for %s, will sleep and retry", r.status_code, url)
+                        if attempt < self.retries-1:
+                            delay = self.backoff_time(attempt)
+                            self.logger.info("Attempt %d, delaying for %.2f seconds", attempt+1, delay)
+                            time.sleep(delay)
+                            continue
+                        self.logger.warning("Giving up, too many failed attempts at downloading %s", url)
+                elif r.status_code != 200:
+                    self.logger.error("Unknown %d error for %s, giving up on this download", r.status_code, url)
+                r.raise_for_status()
+                break
 
-    def get_file_nostatus(self, url):
-        r = self.s.get(url)
-        return r.content
-
-
-    def download_file(self, url, f, **args):
-        retries = 5
-        while True:
-            r = self.s.get(url, stream=True, **args)
-            if r.status_code == 400 and retries > 0:
-                print "[Got 400 error for %s, will sleep and retry %d times]" % (url, retries)
-                retries -= 1
-                time.sleep(5)
-                continue
-            r.raise_for_status()
-            break
-        for chunk in r.iter_content(chunk_size=4096):
-            f.write(chunk)
+            if f is None:
+                return r.content
+            else:
+                f.write(r.content)
 
     def get_json(self, target, *parts, **opts):
         """Get an arbitrary endpoint and parse as json"""
+        with self.http_context(self.ww):
+            uri_parts = [self.BASE_URI, self.API_VERSIONS[target], 'groups', self.group, target]
+            uri_parts = uri_parts + list(map(str, parts))
 
-        uri_parts = [self.BASE_URI, self.API_VERSIONS[target], 'groups', self.group, target]
-        uri_parts = uri_parts + map(str, parts)
+            if target == 'HackGroupInfo':
+                uri_parts[4] = ''
 
-        if target == 'HackGroupInfo':
-            uri_parts[4] = ''
+            uri = "/".join(uri_parts)
+            time.sleep(self.min_delay)
 
-        uri = "/".join(uri_parts)
+            for attempt in range(self.retries):
+                try:
+                    r = self.s.get(uri, params=opts, verify=VERIFY_HTTPS, allow_redirects=False, timeout=15)
 
-        r = self.s.get(uri, params=opts, allow_redirects=False, timeout=15)
-        try:
-            r.raise_for_status()
-            if r.status_code != 200:
-                raise requests.exceptions.HTTPError(response=r)
-            return r.json()['ygData']
-        except Exception as e:
-            print "Exception raised on uri: " + r.request.url
-            print r.content
-            raise e
+                    code = r.status_code
+                    if code == 307:
+                        raise NotAuthenticated()
+                    elif code == 401 or code == 403:
+                        raise Unauthorized()
+                    elif code == 404:
+                        raise NotFound()
+                    elif code != 200:
+                        # TODO: Test ygError response?
+                        raise Recoverable()
 
+                    return r.json()['ygData']
+                except (ConnectionError, Timeout, Recoverable) as e:
+                    self.logger.info("API query failed for '%s': %s", uri, e)
+                    self.logger.debug("Exception detail:", exc_info=e)
+
+                    if attempt < self.retries - 1:
+                        delay = self.backoff_time(attempt)
+                        self.logger.info("Attempt %d/%d failed, delaying for %.2f seconds", attempt+1, self.retries, delay)
+                        time.sleep(delay)
+                        continue
+                    else:
+                        raise

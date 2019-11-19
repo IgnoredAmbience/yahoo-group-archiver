@@ -1,28 +1,47 @@
-#!/usr/bin/env python2
+#!/usr/bin/python3
+from __future__ import unicode_literals
+import yahoogroupsapi
 from yahoogroupsapi import YahooGroupsAPI
-import json
-import email
-import urllib
-import os
-from HTMLParser import HTMLParser
-from os.path import basename
+
 import argparse
-import getpass
-import sys
-import requests
-import time
+import codecs
 import datetime
+import json
+import logging
+import math
+import os
+import re
+import requests.exceptions
+import sys
+import unicodedata
+from os.path import basename
+from collections import OrderedDict
+from requests.cookies import RequestsCookieJar, create_cookie
 
 
-# number of seconds to wait before trying again
-HOLDOFF=10
+if (sys.version_info < (3, 0)):
+    from cookielib import LWPCookieJar
+    from urllib import unquote
+    from HTMLParser import HTMLParser
+    hp = HTMLParser()
+    html_unescape = hp.unescape
+    text = unicode  # noqa: F821
+else:
+    from http.cookiejar import LWPCookieJar
+    from urllib.parse import unquote
+    from html import unescape as html_unescape
+    text = str
 
-# max tries
-TRIES=10
+# WARC metadata params
 
-hp = HTMLParser()
+WARC_META_PARAMS = OrderedDict([('software', 'yahoo-group-archiver'),
+                                ('version','20191118.03'),
+                                ('format', 'WARC File Format 1.0'),
+                                ])
+
 
 def get_best_photoinfo(photoInfoArr, exclude=[]):
+    logger = logging.getLogger(name="get_best_photoinfo")
     rs = {'tn': 0, 'sn': 1, 'hr': 2, 'or': 3}
 
     # exclude types we're not interested in
@@ -33,7 +52,7 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
     best = photoInfoArr[0]
     for info in photoInfoArr:
         if info['photoType'] not in rs:
-            print "ERROR photoType '%s' not known" % info['photoType']
+            logger.error("photoType '%s' not known", info['photoType'])
             continue
         if rs[info['photoType']] >= rs[best['photoType']]:
             best = info
@@ -43,110 +62,353 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
         return best
 
 
-def archive_email(yga, save=True, html=True):
+def archive_messages_metadata(yga):
+    logger = logging.getLogger('archive_message_metadata')
+    params = {'sortOrder': 'asc', 'direction': 1, 'count': 1000}
+
+    message_ids = []
+    next_page_start = float('inf')
+    page_count = 0
+
+    logger.info("Archiving message metadata...")
+    last_next_page_start = 0
+
+    while next_page_start > 0:
+        msgs = yga.messages(**params)
+        with open("message_metadata_%s.json" % page_count, 'wb') as f:
+            json.dump(msgs, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+
+        message_ids += [msg['messageId'] for msg in msgs['messages']]
+
+        logger.info("Archived message metadata records (%d of %d)", len(message_ids), msgs['totalRecords'])
+
+        page_count += 1
+        next_page_start = params['start'] = msgs['nextPageStart']
+        if next_page_start == last_next_page_start:
+            break
+        last_next_page_start = next_page_start
+
+    return message_ids
+
+
+def archive_message_content(yga, id, status="", skipHTML=False, skipRaw=False):
+    logger = logging.getLogger('archive_message_content')
+    
+    if skipRaw is False:
+        try:
+            logger.info("Fetching  raw message id: %d %s", id, status)
+            raw_json = yga.messages(id, 'raw')
+            with open("%s_raw.json" % (id,), 'wb') as f:
+                json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        except Exception:
+            logger.exception("Raw grab failed for message %d", id)
+
+    if skipHTML is False:
+        try:
+            logger.info("Fetching html message id: %d %s", id, status)
+            html_json = yga.messages(id)
+            with open("%s.json" % (id,), 'wb') as f:
+                json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+
+            if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
+                with Mkchdir("%d_attachments" % id):
+                    process_single_attachment(yga, html_json['attachmentsInfo'])
+        except Exception:
+            logger.exception("HTML grab failed for message %d", id)
+
+
+def archive_email(yga, message_subset=None, start=None, stop=None, skipHTML=False, skipRaw=False):
+    logger = logging.getLogger('archive_email')
     try:
-        msg_json = yga.messages()
-    except requests.exceptions.HTTPError as err:
-        print "ERROR: Couldn't download message; %s" % err.message 
+        # Grab messages for initial counts and permissions check
+        init_messages = yga.messages()
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Messages functionality for this group")
+        return
+    except Exception:
+        logger.exception("Unknown error archiving messages")
         return
 
-    count = msg_json['totalRecords']
+    if start is not None or stop is not None:
+        start = start or 1
+        stop = stop or init_messages['lastRecordId']
+        stop = min(stop, init_messages['lastRecordId'])
+        r = range(start, stop + 1)
 
-    msg_json = yga.messages(count=count)
-    print "Group has %s messages, got %s" % (count, msg_json['numRecords'])
+        if message_subset is None:
+            message_subset = list(r)
+        else:
+            s = set(r).union(message_subset)
+            message_subset = list(s)
+            message_subset.sort()
 
-    for message in msg_json['messages']:
-        id = message['messageId']
+    if not message_subset:
+        message_subset = archive_messages_metadata(yga)
+        logger.info("Group has %s messages (maximum id: %s), fetching all",
+                    len(message_subset), (message_subset or ['n/a'])[-1])
 
-        print "* Fetching raw message #%d of %d" % (id,count)
-        for i in range(TRIES):
-            try:
-                raw_json = yga.messages(id, 'raw')
-                break
-            except requests.exceptions.ReadTimeout:
-                print "ERROR: Read timeout, retrying"
-                time.sleep(HOLDOFF)
-        if html:
-		    print "* Fetching message #%d of %d" % (id,count)
-		    for i in range(TRIES):
-		        try:
-			         html_json = yga.messages(id)
-			         break
-		        except requests.exceptions.ReadTimeout:
-			         print "ERROR: Read timeout, retrying"
-			         time.sleep(HOLDOFF)
-		        except requests.exceptions.HTTPError as err:
-			         print "ERROR: Grab failed"
-			         break
+    n = 1
+    for id in message_subset:
+        status = "(%d of %d)" % (n, len(message_subset))
+        n += 1
+        try:
+            archive_message_content(yga, id, status, skipHTML, skipRaw)
+        except Exception:
+            logger.exception("Failed to get message id: %d", id)
+            continue
 
-        if save and message['hasAttachments']:
-            if not 'attachments' in message:
-                print "** Yahoo says this message has attachments, but I can't find any!"
-            else:
-                atts = {}
-                for attach in message['attachments']:
-                    print "** Fetching attachment '%s'" % (attach['filename'],)
-                    if 'link' in attach:
-                        # try and download the attachment
-                        # (sometimes yahoo doesn't keep them)
-                        for i in range(TRIES):
-                            try:
-                                atts[attach['filename']] = yga.get_file(attach['link'])
-                                break
-                            except requests.exceptions.HTTPError as err:
-                                print "ERROR: can't download attachment, try %d: %s" % (i, err)
-                                time.sleep(HOLDOFF)
+def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
+    logger = logging.getLogger('archive_topics')
 
-                    elif 'photoInfo' in attach:
-                        # keep retrying until we find the largest image size we can download
-                        # (sometimes yahoo doesn't keep the originals)
-                        exclude = []
-                        ok = False
-                        while not ok:
-                            # find best photoinfo (largest size)
-                            photoinfo = get_best_photoinfo(attach['photoInfo'], exclude)
+	# Grab messages for initial counts and permissions check
+    logger.info("Initializing messages.")
+    try:
+        init_messages = yga.messages()
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Messages functionality for this group")
+        return
 
-                            if photoinfo is None:
-                                print("ERROR: can't find a viable copy of this photo")
-                                break
+    expectedTopics = init_messages['numTopics']
+    totalRecords = init_messages['totalRecords']
+	# There may be fewer than totalRecords messages, likely due to deleted messages.
+	# We also found a group where expectedTopics was 1 less than the actual number of topics available, but the script still downloaded everything.
+    logger.info("Expecting %d topics and up to %d messages.",expectedTopics,totalRecords)
 
-                            # try and download it
-                            for i in range(TRIES):
-                                try:
-                                    atts[attach['filename']] = yga.get_file(photoinfo['displayURL'])
-                                    ok = True
-                                    break
-                                except requests.exceptions.HTTPError as err:
-                                    # yahoo says no. exclude this size and try for another.
-                                    print "ERROR downloading '%s' variant, try %d: %s" % (photoinfo['photoType'], i, err)
-                                    time.sleep(HOLDOFF)
-                                    #exclude.append(photoinfo['photoType'])
+	# To start the process, we need to download a single message to get a valid topic ID.
+	# If the --start arguement is used, try that message first. Otherwise, start at message ID 1.
+	# Go until we find a message or reach the final record.
+	# Message 1 should be available unless they deleted the first message ever posted.
+    logger.info("Looking for message to identify topic start point.")
+    msgNum = 1
+    if start is not None:
+        msgNum = start
+    topicId = 0
+    foundMessage = False
+    while (msgNum <= totalRecords) and (foundMessage is False):
+        try:
+            logger.info("Fetching html message id: %d", msgNum)
+            html_json = yga.messages(msgNum)
+            topicId = html_json.get("topicId")
+            logger.info("The message is part of topic ID %d", topicId)
+            foundMessage = True
+        except:
+            logger.exception("HTML grab failed for message %d", msgNum)
+            msgNum += 1
 
-                        # if we failed, try the next attachment
-                        if not ok:
-                            continue
+    if foundMessage is False:
+        logger.info("No messages available.")
+        return
+	
+    archivedTopicsCount = 0
+    totalMessagesInTopics = 0
+    nextTopicId = 0
+    prevTopicId = 0
+    retrievedMessageIds = list()
 
-                        if save:
-                            fname = "%s-%s" % (id, basename(attach['filename']))
-                            with file(fname, 'wb') as f:
-                                f.write(atts[attach['filename']])
-
-        with file("%s_raw.json" % (id,), 'w') as f:
-            f.write(json.dumps(raw_json, indent=4))
-
-        if html:
-		    with file("%s.json" % (id,), 'w') as f:
-		        f.write(json.dumps(html_json, indent=4))
+	# Grab the first topic.
+    try:
+        logger.info("Fetching first topic, id %d (1 of %d)", topicId, expectedTopics)
+        topic_json = yga.topics(topicId,maxResults=999999)
+        with open("%s.json" % (topicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        archivedTopicsCount = archivedTopicsCount + 1		
+        totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
+        nextTopicId = topic_json.get("nextTopicId")
+        prevTopicId = topic_json.get("prevTopicId")
+        logger.info("Fetched first topic ID %d with message count %d.",topicId,topic_json['totalMsgInTopic'])
         
+        messages = topic_json.get("messages")
+        for message in messages:
+            # Track what messages we've gotten.
+            msgId = message.get("msgId")
+            retrievedMessageIds.append(msgId)
+            
+            # Download messsage attachments if there are any.
+            if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
+                with Mkchdir("%d_attachments" % msgId):
+                    process_single_attachment(yga, message['attachmentsInfo'])
+
+        if nextTopicId > 0:
+            logger.info("The next topic ID is %d.",nextTopicId)
+        else:
+            logger.info("There are no later topics.")
+
+        if prevTopicId > 0:
+            logger.info("The previous topic ID is %d.",prevTopicId)
+        else:
+            logger.info("There are no previous topics.")
+    except:
+        logger.exception("First topic grab failed for topic ID %d.", topicId)
+		# Fall back to a full e-mail download, unless we're already doing that anyway.
+        if (alsoDownloadingEmail is False) and (getRaw is False):
+            logger.exception("Falling back to html e-mail download.")
+            with Mkchdir('email'):
+                archive_email(yga,skipRaw=True)
+        elif (alsoDownloadingEmail is False) and (getRaw is True):
+            logger.exception("Falling back to full e-mail download.")
+            with Mkchdir('email'):
+                archive_email(yga)
+        
+    
+	# Get all previous and later topics. Topic ordering seems to be based on which topics were replied to most recently.
+    topicRetrievalError = False
+
+    # Grab all previous topics from the starting topic back. If starting at message 1, there may not be any.
+    logger.info("Retrieving previous topics.")
+    while prevTopicId > 0:
+        try:
+            archivedTopicsCount = archivedTopicsCount + 1
+			
+            if archivedTopicsCount > totalRecords + 100:
+                logger.info("We've archived %d topics, but are expecting at most %d messages. Stopping due to suspected infinite loop.",archivedTopicsCount,totalRecords)
+                return
+
+            logger.info("Fetching topic ID %d (%d of %d)", prevTopicId,archivedTopicsCount,expectedTopics)
+            topic_json = yga.topics(prevTopicId,maxResults=999999)
+            with open("%s.json" % (prevTopicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            
+            totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
+            logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",prevTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
+
+
+            messages = topic_json.get("messages")
+            for message in messages:
+                # Track what messages we've gotten.
+                msgId = message.get("msgId")
+                retrievedMessageIds.append(msgId)
+            
+                # Download messsage attachments if there are any.
+                if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
+                    with Mkchdir("%d_attachments" % msgId):
+                        process_single_attachment(yga, message['attachmentsInfo'])
+
+            prevTopicId = topic_json.get("prevTopicId")
+            if prevTopicId <= 0:
+                logger.info("There are no previous topics.")
+        except:
+            logger.exception("Topic grab failed for topic ID %d", prevTopicId)
+            topicRetrievalError = True
+            break
+
+    # Grab all later topics from the starting topic forward.
+    logger.info("Retrieving later topics.")
+    while nextTopicId > 0:
+        try:
+            archivedTopicsCount = archivedTopicsCount + 1
+
+            if archivedTopicsCount > totalRecords + 100:
+                logger.info("We've archived %d topics, but are expecting at most %d messages. Stopping due to suspected infinite loop.",archivedTopicsCount,totalRecords)
+                return
+
+            logger.info("Fetching topic ID %d (%d of %d)", nextTopicId,archivedTopicsCount,expectedTopics)
+            topic_json = yga.topics(nextTopicId,maxResults=999999)
+            with open("%s.json" % (nextTopicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            
+            totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
+            logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",nextTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
+
+            messages = topic_json.get("messages")
+            for message in messages:
+                # Track what messages we've gotten.
+                msgId = message.get("msgId")
+                retrievedMessageIds.append(msgId)
+            
+                # Download messsage attachments if there are any.
+                if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
+                    with Mkchdir("%d_attachments" % msgId):
+                        process_single_attachment(yga, message['attachmentsInfo'])
+
+            nextTopicId = topic_json.get("nextTopicId")
+            if nextTopicId <= 0:
+                logger.info("There are no later topics.")
+        except:
+            logger.exception("Topic grab failed for topic ID %d", nextTopicId)
+            topicRetrievalError = True
+            break
+
+    # If requested, get the raw versions of every available message one at a time. There doesn't appear to be a raw view of an entire topic, so this is slower than the topic download.
+    if getRaw is True and alsoDownloadingEmail is False:
+        logger.info("Downloading raw versions of %d messages.",totalMessagesInTopics)
+        with Mkchdir('email'):
+            archive_email(yga,retrievedMessageIds,skipHTML=True)
+
+    # If we couldn't retrieve all topics, determine what potential message IDs we don't already have, then do an e-mail download of only those.
+    if topicRetrievalError is True and alsoDownloadingEmail is False:
+        logger.info("Failed to retrieve all topics. ")
+        potentialMessages = list(range(1,totalRecords))
+        unretrievedMessages = list(set(potentialMessages).difference(retrievedMessageIds))
+        logger.info("retrievedMessageIds: %s", str(retrievedMessageIds))
+        logger.info("potentialMessages: %s",str(potentialMessages))
+        logger.info("unretrievedMessages: %s",str(unretrievedMessages))
+        if getRaw is False:
+            logger.info("Falling back to html e-mail download for unretrieved messages.")
+            with Mkchdir('email'):
+                archive_email(yga,unretrievedMessages,skipRaw=True)
+        else:
+            with Mkchdir('email'):
+                logger.info("Falling back to full e-mail download for unretrieved messages.")
+                archive_email(yga,unretrievedMessages)
+
+
+
+def process_single_attachment(yga, attach):
+    logger = logging.getLogger(name="process_single_attachment")
+    for frec in attach:
+        logger.info("Fetching attachment '%s'", frec['filename'])
+        fname = "%s-%s" % (frec['fileId'], frec['filename'])
+        with open(sanitise_file_name(fname), 'wb') as f:
+            if 'link' in frec:
+                # try and download the attachment
+                # (sometimes yahoo doesn't keep them)
+                try:
+                    yga.download_file(frec['link'], f=f)
+                except requests.exceptions.HTTPError as err:
+                    logger.error("ERROR downloading attachment '%s': %s", frec['link'], err)
+                continue
+
+            elif 'photoInfo' in frec:
+                process_single_photo(frec['photoInfo'],f)
+
+
+def process_single_photo(photoinfo,f):
+    logger = logging.getLogger(name="process_single_photo")
+    # keep retrying until we find the largest image size we can download
+    # (sometimes yahoo doesn't keep the originals)
+    exclude = []
+    ok = False
+    while not ok:
+        # find best photoinfo (largest size)
+        bestPhotoinfo = get_best_photoinfo(photoinfo, exclude)
+
+        if bestPhotoinfo is None:
+            logger.error("Can't find a viable copy of this photo")
+            break
+
+        # try and download it
+        try:
+            yga.download_file(bestPhotoinfo['displayURL'], f=f)
+            ok = True
+        except requests.exceptions.HTTPError as err:
+            # yahoo says no. exclude this size and try for another.
+            logger.error("ERROR downloading '%s' variant %s: %s", bestPhotoinfo['displayURL'],
+                         bestPhotoinfo['photoType'], err)
+            exclude.append(bestPhotoinfo['photoType'])
 
 def archive_files(yga, subdir=None):
-    if subdir:
-        file_json = yga.files(sfpath=subdir)
-    else:
-        file_json = yga.files()
+    logger = logging.getLogger(name="archive_files")
+    try:
+        if subdir:
+            file_json = yga.files(sfpath=subdir)
+        else:
+            file_json = yga.files()
+    except Exception:
+        logger.error("Couldn't access Files functionality for this group")
+        return
 
-    with open('fileinfo.json', 'w') as f:
-        f.write(json.dumps(file_json['dirEntries'], indent=4))
+    with open('fileinfo.json', 'wb') as f:
+        json.dump(file_json['dirEntries'], codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     n = 0
     sz = len(file_json['dirEntries'])
@@ -154,220 +416,248 @@ def archive_files(yga, subdir=None):
         n += 1
         if path['type'] == 0:
             # Regular file
-            name = hp.unescape(path['fileName']).replace("/", "_")
-            print "* Fetching file '%s' (%d/%d)" % (name, n, sz)
-            with open(basename(name), 'wb') as f:
+            name = html_unescape(path['fileName'])
+            new_name = sanitise_file_name("%d_%s" % (n, name))
+            logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
+            with open(new_name, 'wb') as f:
                 yga.download_file(path['downloadURL'], f)
 
         elif path['type'] == 1:
             # Directory
-            print "* Fetching directory '%s' (%d/%d)" % (path['fileName'], n, sz)
-            with Mkchdir(basename(path['fileName']).replace('.', '')):
-                pathURI = urllib.unquote(path['pathURI'])
+            name = html_unescape(path['fileName'])
+            new_name = "%d_%s" % (n, name)
+            logger.info("Fetching directory '%s' as '%s' (%d/%d)", name, sanitise_folder_name(new_name), n, sz)
+            with Mkchdir(new_name):     # (new_name sanitised again by Mkchdir)
+                pathURI = unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
 
+
+def archive_attachments(yga):
+    logger = logging.getLogger(name="archive_attachments")
+    try:
+        attachments_json = yga.attachments(count=999999)
+    except Exception:
+        logger.error("Couldn't access Attachments functionality for this group")
+        return
+
+    with open('allattachmentinfo.json', 'wb') as f:
+        json.dump(attachments_json['attachments'], codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+
+    n = 0
+    for a in attachments_json['attachments']:
+        n += 1
+        with Mkchdir(a['attachmentId']):
+            try:
+                a_json = yga.attachments(a['attachmentId'])
+            except Exception:
+                logger.error("Attachment id %d inaccessible.", a['attachmentId'])
+                continue
+            with open('attachmentinfo.json', 'wb') as f:
+                json.dump(a_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+                process_single_attachment(yga, a_json['files'])
+
+
 def archive_photos(yga):
-    nb_albums = yga.albums(count=5)['total'] + 1
+    logger = logging.getLogger(name="archive_photos")
+    try:
+        nb_albums = yga.albums(count=5)['total'] + 1
+    except Exception:
+        logger.error("Couldn't access Photos functionality for this group")
+        return
     albums = yga.albums(count=nb_albums)
     n = 0
 
-    with open('albums.json', 'w') as f:
-        f.write(json.dumps(albums['albums'], indent=4))
+    with open('albums.json', 'wb') as f:
+        json.dump(albums['albums'], codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
     for a in albums['albums']:
         n += 1
-        name = hp.unescape(a['albumName']).replace("/", "_")
-        # Yahoo has an off-by-one error in the album count...
-        print "* Fetching album '%s' (%d/%d)" % (name, n, albums['total'] - 1)
+        name = html_unescape(a['albumName'])
+        # Yahoo sometimes has an off-by-one error in the album count...
+        logger.info("Fetching album '%s' (%d/%d)", name, n, albums['total'])
 
-        with Mkchdir(basename(name).replace('.', '')):
+        folder = "%d-%s" % (a['albumId'], name)
+
+        with Mkchdir(folder):
             photos = yga.albums(a['albumId'])
+            pages = int(photos['total'] / 100 + 1)
             p = 0
 
-            with open('photos.json', 'w') as f:
-                f.write(json.dumps(photos['photos'], indent=4))
+            for page in range(pages):
+                photos = yga.albums(a['albumId'], start=page*100, count=100)
+                with open('photos-%d.json' % page, 'wb') as f:
+                    json.dump(photos['photos'], codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
-            for photo in photos['photos']:
-                p += 1
-                pname = hp.unescape(photo['photoName']).replace("/", "_")
-                print "** Fetching photo '%s' (%d/%d)" % (pname, p, photos['total'])
+                for photo in photos['photos']:
+                    p += 1
+                    pname = html_unescape(photo['photoName'])
+                    logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
 
-                photoinfo = get_best_photoinfo(photo['photoInfo'])
-                fname = "%d-%s.jpg" % (photo['photoId'], basename(pname))
-                with open(fname, 'wb') as f:
-                    for i in range(TRIES):
-                        try:
-                            yga.download_file(photoinfo['displayURL'], f)
-                            break
-                        except requests.exceptions.HTTPError as err:
-                            print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-                            time.sleep(HOLDOFF)
+                    fname = "%d-%s.jpg" % (photo['photoId'], pname)
+                    with open(sanitise_file_name(fname), 'wb') as f:
+                        process_single_photo(photo['photoInfo'],f)
 
 
-def archive_db(yga, group):
-    for i in range(TRIES):
-        try:
-            json = yga.database()
-            break
-        except requests.exceptions.HTTPError as err:
-            json = None
-            if err.response.status_code == 403:
-                # 403 error means Permission Denied. Retrying won't help.
-                break
-            print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-            time.sleep(HOLDOFF)
-
-    if json is None:
-        print "ERROR: Couldn't download databases"
+def archive_db(yga):
+    logger = logging.getLogger(name="archive_db")
+    try:
+        db_json = yga.database()
+    except yahoogroupsapi.AuthenticationError:
+        db_json = None
+        # 401 or 403 error means Permission Denied; 307 means redirect to login. Retrying won't help.
+        logger.error("Couldn't access Database functionality for this group")
         return
 
-    n = 0
-    nts = len(json['tables'])
-    for table in json['tables']:
-        n += 1
-        print "* Downloading database table '%s' (%d/%d)" % (table['name'], n, nts)
+    with open('databases.json', 'wb') as f:
+        json.dump(db_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
-        name = basename(table['name']) + '.csv'
-        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (group, table['tableId'])
-        with open(name, 'w') as f:
+    n = 0
+    nts = len(db_json['tables'])
+    for table in db_json['tables']:
+        n += 1
+        logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
+
+        name = "%s_%s.csv" % (table['tableId'], table['name'])
+        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
+        with open(sanitise_file_name(name), 'wb') as f:
             yga.download_file(uri, f)
 
+        records_json = yga.database(table['tableId'], 'records')
+        with open('%s_records.json' % table['tableId'], 'wb') as f:
+            json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
-def archive_links(yga):
-    nb_links = yga.links(count=5)['total'] + 1
-    links = yga.links(count=nb_links)
+
+def archive_links(yga, subdir=''):
+    logger = logging.getLogger(name="archive_links")
+
+    try:
+        links = yga.links(linkdir=subdir)
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Links functionality for this group")
+        return
+
+    with open('links.json', 'wb') as f:
+        json.dump(links, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        logger.info("Written %d links from %s folder", links['numLink'], subdir)
+
     n = 0
-
     for a in links['dirs']:
         n += 1
-        name = hp.unescape(a['folder']).replace("/", "_")
-        print "* Fetching links folder '%s' (%d/%d)" % (name, n, links['numDir'])
+        logger.info("Fetching links folder '%s' (%d/%d)", a['folder'], n, links['numDir'])
 
-        with Mkchdir(basename(name).replace('.', '')):
-            child_links = yga.links(linkdir=a['folder'])
+        with Mkchdir(a['folder']):
+            archive_links(yga, "%s/%s" % (subdir, a['folder']))
 
-            with open('links.json', 'w') as f:
-                f.write(json.dumps(child_links['links'], indent=4))
-                print "** Written %d links from folder %s" % (child_links['numLink'],name) 
-
-    with open('links.json', 'w') as f:
-        f.write(json.dumps(links['links'], indent=4))
-        print "* Written %d links from root folder" % links['numLink']    
 
 def archive_calendar(yga):
+    logger = logging.getLogger(name="archive_calendar")
     groupinfo = yga.HackGroupInfo()
 
     if 'entityId' not in groupinfo:
-        print "ERROR: Couldn't download calendar/events: missing entityId"
+        logger.error("Couldn't download calendar/events: missing entityId")
         return
 
     entityId = groupinfo['entityId']
 
-	# We get the wssid
-    tmpUri = "https://calendar.yahoo.com/ws/v3/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % entityId
-    tmpContent = yga.get_file_nostatus(tmpUri) # We expect a 403 here
-    tmpJson = json.loads(tmpContent)['calendarError']
+    api_root = "https://calendar.yahoo.com/ws/v3"
+
+    # We get the wssid
+    tmpUri = "%s/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % (api_root, entityId)
+    try:
+        yga.download_file(tmpUri)  # We expect a 403 or 401  here
+        logger.error("Attempt to get wssid returned HTTP 200, which is unexpected!")  # we should never hit this
+        return
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403 or e.response.status_code == 401:
+            tmpJson = json.loads(e.response.content)['calendarError']
+        else:
+            logger.error("Attempt to get wssid returned an unexpected response status %d" % e.response.status_code)
+            return
 
     if 'wssid' not in tmpJson:
-        print "ERROR: Couldn't download calendar/events: missing wssid"
+        logger.error("Couldn't download calendar/events: missing wssid")
         return
     wssid = tmpJson['wssid']
 
-	# Getting everything since the launch of Yahoo! Groups (January 30, 2001)
-    archiveDate = datetime.datetime(2001,1,30)
-    endDate = datetime.datetime(2025,1,1)
+    # Getting everything since the launch of Yahoo! Groups (January 30, 2001)
+    archiveDate = datetime.datetime(2001, 1, 30)
+    endDate = datetime.datetime(2025, 1, 1)
     while archiveDate < endDate:
         jsonStart = archiveDate.strftime("%Y%m%d")
         jsonEnd = (archiveDate + datetime.timedelta(days=1000)).strftime("%Y%m%d")
-        calURL = "https://calendar.yahoo.com/ws/v3/users/%s/calendars/events/?format=json&dtstart=%s&dtend=%s&wssid=%s" % \
-                    (entityId, jsonStart, jsonEnd, wssid)
+        calURL = "%s/users/%s/calendars/events/?format=json&dtstart=%s&dtend=%s&wssid=%s" % \
+            (api_root, entityId, jsonStart, jsonEnd, wssid)
 
-        for i in range(TRIES):
-			try:
-				 print "* Trying to get events between %s and %s" % (jsonStart,jsonEnd)
-				 calContentRaw = yga.get_file(calURL)
-				 break
-			except requests.exceptions.HTTPError as err:
-				 print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-				 time.sleep(HOLDOFF)
+        try:
+            logger.info("Trying to get events between %s and %s", jsonStart, jsonEnd)
+            calContentRaw = yga.download_file(calURL)
+        except requests.exception.HTTPError:
+            logger.error("Unrecoverable error getting events between %s and %s: URL %s", jsonStart, jsonEnd, calURL)
 
         calContent = json.loads(calContentRaw)
-        if calContent['events']['count'] > 0 :
-        	filename = jsonStart + "-" + jsonEnd + ".json"
-        	with open(filename, 'wb') as f:
-				print "** Got %d event(s)" % (calContent['events']['count'])
-				f.write(json.dumps(calContent, indent=4))
+        if calContent['events']['count'] > 0:
+            filename = jsonStart + "-" + jsonEnd + ".json"
+            with open(filename, 'wb') as f:
+                logger.info("Got %d event(s)", calContent['events']['count'])
+                json.dump(calContent, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
         archiveDate += datetime.timedelta(days=1000)
 
+
 def archive_about(yga):
+    logger = logging.getLogger(name="archive_about")
     groupinfo = yga.HackGroupInfo()
+    logger.info("Downloading group description data")
 
     with open('about.json', 'wb') as f:
-        f.write(json.dumps(groupinfo, indent=4))
+        json.dump(groupinfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
-	statistics = yga.statistics()
+    statistics = yga.statistics()
 
     with open('statistics.json', 'wb') as f:
-        f.write(json.dumps(statistics, indent=4))
 
+        json.dump(statistics, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+
+    exclude = []
     # Check if we really have a photo in the group description
     if ('photoInfo' in statistics['groupHomePage'] and statistics['groupHomePage']['photoInfo']):
-        exclude = []
-
-        # find best photoinfo (largest size)
-        photoinfo = get_best_photoinfo(statistics['groupHomePage']['photoInfo'], exclude)
-
-        if photoinfo is not None:
-            fname = 'GroupPhoto-%s' % basename(photoinfo['displayURL']).split('?')[0]
-            print "* Downloading the photo in group description as %s" % fname
-            for i in range(TRIES):
-			    try:
-			        with open(fname, 'wb') as f:
-				        yga.download_file(photoinfo['displayURL'],f)
-				        break
-			    except requests.exceptions.HTTPError as err:
-				     print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-				     time.sleep(HOLDOFF)
+        # Base filename on largest photo size.
+        bestphotoinfo = get_best_photoinfo(statistics['groupHomePage']['photoInfo'], exclude)
+        fname = 'GroupPhoto-%s' % basename(bestphotoinfo['displayURL']).split('?')[0]
+        logger.info("Downloading the photo in group description as %s", fname)
+        with open(sanitise_file_name(fname), 'wb') as f:
+            process_single_photo(statistics['groupHomePage']['photoInfo'],f)
 
     if statistics['groupCoverPhoto']['hasCoverImage']:
-        exclude = []
+        # Base filename on largest photo size.
+        bestphotoinfo = get_best_photoinfo(statistics['groupCoverPhoto']['photoInfo'], exclude)
+        fname = 'GroupCover-%s' % basename(bestphotoinfo['displayURL']).split('?')[0]
+        logger.info("Downloading the group cover as %s", fname)
+        with open(sanitise_file_name(fname), 'wb') as f:
+            process_single_photo(statistics['groupCoverPhoto']['photoInfo'],f)
 
-        # find best photoinfo (largest size)
-        photoinfo = get_best_photoinfo(statistics['groupCoverPhoto']['photoInfo'], exclude)
-
-        if photoinfo is not None:
-            fname = 'GroupCover-%s' % basename(photoinfo['displayURL']).split('?')[0]
-            print "* Downloading the group cover as %s" % fname
-            for i in range(TRIES):
-			    try:
-			        with open(fname, 'wb') as f:
-				        yga.download_file(photoinfo['displayURL'],f)
-				        break
-			    except requests.exceptions.HTTPError as err:
-				     print "HTTP error (sleeping before retry, try %d: %s" % (i, err)
-				     time.sleep(HOLDOFF)
 
 def archive_polls(yga):
+    logger = logging.getLogger(name="archive_polls")
     try:
-        pollsList = yga.polls(count=100,sort='DESC')
-    except Exception as e:
-        print "ERROR: Couldn't access Polls functionality for this group"
+        pollsList = yga.polls(count=100, sort='DESC')
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Polls functionality for this group")
         return
 
     if len(pollsList) == 100:
-        print "* Got 100 polls, checking if there are more ..."
+        logger.info("Got 100 polls, checking if there are more ...")
         endoflist = False
-        offset=99
+        offset = 99
 
         while not endoflist:
-            tmpList=yga.polls(count=100,sort='DESC',start=offset)
+            tmpList = yga.polls(count=100, sort='DESC', start=offset)
             tmpCount = len(tmpList)
-            print "* Got %d more polls" % tmpCount
+            logger.info("Got %d more polls", tmpCount)
 
             # Trivial case first
             if tmpCount < 100:
-                endoflist=True
+                endoflist = True
 
             # Again we got 100 polls, increase the offset
             if tmpCount == 100:
@@ -375,30 +665,72 @@ def archive_polls(yga):
 
             # Last survey
             if pollsList[len(pollsList)-1]['surveyId'] == tmpList[len(tmpList)-1]['surveyId']:
-                print "* No new polls found with offset %d" % offset
+                logger.info("No new polls found with offset %d", offset)
                 endoflist = True
                 break
-            
+
             pollsList += tmpList
 
     totalPolls = len(pollsList)
-    print "* Found %d polls to grab" % totalPolls
+    logger.info("Found %d polls to grab", totalPolls)
 
     n = 1
     for p in pollsList:
-        print "* Downloading poll %d [%d/%d]" %  (p['surveyId'],n,totalPolls)
+        logger.info("Downloading poll %d [%d/%d]", p['surveyId'], n, totalPolls)
         pollInfo = yga.polls(p['surveyId'])
-        fname = '%s-%s.json' % (n,p['surveyId'])
+        fname = '%s-%s.json' % (n, p['surveyId'])
 
         with open(fname, 'wb') as f:
-            f.write(json.dumps(pollInfo, indent=4))
+            json.dump(pollInfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
         n += 1
+
+
+def archive_members(yga):
+    logger = logging.getLogger(name="archive_members")
+    try:
+        confirmed_json = yga.members('confirmed')
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Members list functionality for this group")
+        return
+    n_members = confirmed_json['total']
+    # we can dump 100 member records at a time
+    all_members = []
+    for i in range(int(math.ceil(n_members)/100 + 1)):
+        confirmed_json = yga.members('confirmed', start=100*i, count=100)
+        all_members = all_members + confirmed_json['members']
+        with open('memberinfo_%d.json' % i, 'wb') as f:
+            json.dump(confirmed_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    all_json_data = {"total": n_members, "members": all_members}
+    with open('allmemberinfo.json', 'wb') as f:
+        json.dump(all_json_data, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    logger.info("Saved members: Expected: %d, Actual: %d", n_members, len(all_members))
+
+
+####
+# Utility Functions
+####
+
+
+def sanitise_file_name(value):
+    """
+    Convert spaces to hyphens.  Remove characters that aren't alphanumerics, underscores, periods or hyphens.
+    Also strip leading and trailing whitespace and periods.
+    """
+    value = text(value)
+    value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
+    value = re.sub(r'[^\w\s.-]', '', value).strip().strip('.')
+    return re.sub(r'[-\s]+', '-', value)
+
+
+def sanitise_folder_name(name):
+    return sanitise_file_name(name).replace('.', '_')
 
 
 class Mkchdir:
     d = ""
-    def __init__(self, d):
-        self.d = d
+
+    def __init__(self, d, sanitize=True):
+        self.d = sanitise_folder_name(d) if sanitize else d
 
     def __enter__(self):
         try:
@@ -410,71 +742,171 @@ class Mkchdir:
     def __exit__(self, exc_type, exc_value, traceback):
         os.chdir('..')
 
+
+class CustomFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        if '%f' in datefmt:
+            datefmt = datefmt.replace('%f', '%03d' % record.msecs)
+        return logging.Formatter.formatTime(self, record, datefmt)
+
+
+def init_cookie_jar(cookie_file=None, cookie_t=None, cookie_y=None, cookie_euconsent=None):
+    cookie_jar = LWPCookieJar(cookie_file) if cookie_file else RequestsCookieJar()
+
+    if cookie_file and os.path.exists(cookie_file):
+        cookie_jar.load(ignore_discard=True)
+
+    if args.cookie_t:
+        cookie_jar.set_cookie(create_cookie('T', cookie_t))
+    if cookie_y:
+        cookie_jar.set_cookie(create_cookie('Y', cookie_y))
+    if cookie_euconsent:
+        cookie_jar.set_cookie(create_cookie('EuConsent', cookie_euconsent))
+
+    if cookie_file:
+        cookie_jar.save(ignore_discard=True)
+
+    return cookie_jar
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument('-us', '--username', type=str)
-    p.add_argument('-pa', '--password', type=str,
-            help='If no password supplied, will be requested on the console')
-    p.add_argument('-ct', '--cookie_t', type=str)
-    p.add_argument('-cy', '--cookie_y', type=str)
-    p.add_argument('-ce', '--cookie_e', type=str,
-            help='Additional EuConsent cookie is required in EU')
+
+    pa = p.add_argument_group(title='Authentication Options')
+    pa.add_argument('-ct', '--cookie_t', type=str,
+                    help='T authentication cookie from yahoo.com')
+    pa.add_argument('-cy', '--cookie_y', type=str,
+                    help='Y authentication cookie from yahoo.com')
+    pa.add_argument('-ce', '--cookie_e', type=str, default='',
+                    help='Additional EuConsent cookie is required in EU')
+    pa.add_argument('-cf', '--cookie-file', type=str,
+                    help='File to store authentication cookies to. Cookies passed on the command line will overwrite '
+                    'any already in the file.')
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
-            help='Only archive email and attachments')
+                    help='Only archive email and attachments (from email)')
+    po.add_argument('-at', '--attachments', action='store_true',
+                    help='Only archive attachments (from attachments list)')
     po.add_argument('-f', '--files', action='store_true',
-            help='Only archive files')
+                    help='Only archive files')
     po.add_argument('-i', '--photos', action='store_true',
-            help='Only archive photo galleries')
+                    help='Only archive photo galleries')
+    po.add_argument('-t', '--topics', action='store_true',
+                    help='Only archive HTML email and attachments through the topics API')
+    po.add_argument('-tr', '--topicsWithRaw', action='store_true',
+                    help='Only archive both HTML and raw email and attachments through the topics API')
     po.add_argument('-d', '--database', action='store_true',
-            help='Only archive database')
+                    help='Only archive database')
     po.add_argument('-l', '--links', action='store_true',
-            help='Only archive links')
+                    help='Only archive links')
     po.add_argument('-c', '--calendar', action='store_true',
-            help='Only archive events')
+                    help='Only archive events')
     po.add_argument('-p', '--polls', action='store_true',
-            help='Only archive polls')
+                    help='Only archive polls')
     po.add_argument('-a', '--about', action='store_true',
-            help='Only archive general info about the group')
+                    help='Only archive general info about the group')
+    po.add_argument('-m', '--members', action='store_true',
+                    help='Only archive members')
 
-    pe = p.add_argument_group(title='Email Options')
-    pe.add_argument('-s', '--no-save', action='store_true',
-            help="Don't save email attachments as individual files")
-    pe.add_argument('--html', action='store_false',
-            help="Don't save the non-raw version of message")
+    pr = p.add_argument_group(title='Request Options')
+    pr.add_argument('--user-agent', type=str,
+                    help='Override the default user agent used to make requests')
+
+    pc = p.add_argument_group(title='Message Range Options',
+                              description='Options to specify which messages to download. Use of multiple options will '
+                              'be combined. Note: These options will also try to fetch message IDs that may not exist '
+                              'in the group.')
+    pc.add_argument('--start', type=int,
+                    help='Email message id to start from (specifying this will cause only specified message contents to'
+                    ' be downloaded, and not message indexes). Default to 1, if end option provided.')
+    pc.add_argument('--stop', type=int,
+                    help='Email message id to stop at (inclusive), defaults to last message ID available, if start '
+                    'option provided.')
+    pc.add_argument('--ids', nargs='+', type=int,
+                    help='Get email message by ID(s). Space separated, terminated by another flag or --')
+
+    pf = p.add_argument_group(title='Output Options')
+    pf.add_argument('-w', '--warc', action='store_true',
+                    help='Output WARC file of raw network requests. [Requires warcio package installed]')
+
+    p.add_argument('-v', '--verbose', action='store_true')
+    p.add_argument('--colour', '--color', action='store_true', help='Colour log output to terminal')
+    p.add_argument('--delay', type=float, default=0.2, help='Minimum delay between requests (default 0.2s)')
 
     p.add_argument('group', type=str)
 
     args = p.parse_args()
 
-    if not args.cookie_e:
-        args.cookie_e = ''
+    # Setup logging
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
 
-    yga = YahooGroupsAPI(args.group, args.cookie_t, args.cookie_y, args.cookie_e)
-    if args.username:
-        password = args.password or getpass.getpass()
-        print "logging in..."
-        if not yga.login(args.username, password):
-            print "Login failed"
-            sys.exit(1)
+    log_format = {'fmt': '%(asctime)s %(levelname)s %(name)s %(message)s', 'datefmt': '%Y-%m-%d %H:%M:%S.%f %Z'}
+    log_formatter = CustomFormatter(**log_format)
 
-    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or args.polls):
-        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = args.polls = True
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    if args.colour:
+        try:
+            import coloredlogs
+        except ImportError as e:
+            print("Coloured logging output requires the 'coloredlogs' package to be installed.")
+            raise e
+        coloredlogs.install(level=log_level, **log_format)
+    else:
+        log_stdout_handler = logging.StreamHandler(sys.stdout)
+        log_stdout_handler.setLevel(log_level)
+        log_stdout_handler.setFormatter(log_formatter)
+        root_logger.addHandler(log_stdout_handler)
 
-    with Mkchdir(args.group):
+    cookie_jar = init_cookie_jar(args.cookie_file, args.cookie_t, args.cookie_y, args.cookie_e)
+
+    headers = {}
+    if args.user_agent:
+        headers['User-Agent'] = args.user_agent
+
+    yga = YahooGroupsAPI(args.group, cookie_jar, headers, min_delay=args.delay)
+
+    if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
+            args.polls or args.attachments or args.members or args.topics or args.topicsWithRaw):
+        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = \
+            args.polls = args.attachments = args.members = args.topics = args.topicsWithRaw = True
+
+    with Mkchdir(args.group, sanitize=False):
+        log_file_handler = logging.FileHandler('archive.log')
+        log_file_handler.setFormatter(log_formatter)
+        root_logger.addHandler(log_file_handler)
+
+        if args.warc:
+            try:
+                from warcio import WARCWriter
+            except ImportError:
+                logging.error('WARC output requires the warcio package to be installed.')
+                exit(1)
+            fhwarc = open('data.warc.gz', 'ab')
+            warc_writer = WARCWriter(fhwarc)
+            warcmeta = warc_writer.create_warcinfo_record(fhwarc.name, WARC_META_PARAMS)
+            warc_writer.write_record(warcmeta)
+            yga.set_warc_writer(warc_writer)
+
         if args.email:
             with Mkchdir('email'):
-                archive_email(yga, save=(not args.no_save), html=args.html)
+                archive_email(yga, message_subset=args.ids, start=args.start, stop=args.stop)
         if args.files:
             with Mkchdir('files'):
                 archive_files(yga)
         if args.photos:
             with Mkchdir('photos'):
                 archive_photos(yga)
+        if args.topics:
+            with Mkchdir('topics'):
+                archive_topics(yga,start=args.start,alsoDownloadingEmail = args.email)
+        if args.topicsWithRaw:
+            with Mkchdir('topics'):
+                archive_topics(yga,start=args.start,alsoDownloadingEmail = args.email,getRaw=True)
         if args.database:
             with Mkchdir('databases'):
-                archive_db(yga, args.group)
+                archive_db(yga)
         if args.links:
             with Mkchdir('links'):
                 archive_links(yga)
@@ -487,3 +919,12 @@ if __name__ == "__main__":
         if args.polls:
             with Mkchdir('polls'):
                 archive_polls(yga)
+        if args.attachments:
+            with Mkchdir('attachments'):
+                archive_attachments(yga)
+        if args.members:
+            with Mkchdir('members'):
+                archive_members(yga)
+
+        if args.warc:
+            fhwarc.close()
