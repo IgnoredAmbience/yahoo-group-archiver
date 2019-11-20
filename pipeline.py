@@ -223,7 +223,7 @@ class YgaArgs(object):
         elif item_type == 'group_cookie':
             cookie_json = http_client.fetch('https://df58.host.cs.st-andrews.ac.uk/yahoogroups/cookieget/' + item_value + '/', method='GET')
             if cookie_json.code != 200:
-                raise ValueError('Got bad status code {}.'.format(response.code))
+                raise ValueError('Got bad status code {}.'.format(cookie_json.code))
 
             cookies = json.loads(cookie_json.body.decode('utf-8', 'ignore'))
             yga_args.extend(['-cy', "%s" % cookies["cookie_Y"]])
