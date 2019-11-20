@@ -2,7 +2,7 @@ yahoo-group-archiver
 pipeline edition  
 ====================
 
-* Python 3.6 - 3.8  
+* Python 3.5 - 3.8  
 
 git clone https://github.com/ArchiveTeam/yahoo-group-archiver.git  
 cd yahoo-group-archiver  

@@ -46,7 +46,8 @@ PYTHON = find_executable(
     'Python3',
     [   'Python 3.8', 
         'Python 3.7', 
-        'Python 3.6'   ],
+        'Python 3.6', 
+        'Python 3.5'   ],
     [
         '/usr/bin/python3',
         '/usr/local/bin/python3',
@@ -63,7 +64,7 @@ if not PYTHON:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20191118.03'
+VERSION = '20191118.04'
 USER_AGENT = 'ArchiveTeam'
 TRACKER_ID = 'yahoo-groups-api'
 # TRACKER_HOST = 'tracker.archiveteam.org'  #prod-env
