@@ -79,7 +79,7 @@ class YahooGroupsAPI:
     ww = None
     http_context = dummy_contextmanager
 
-    def __init__(self, group, cookie_jar=None, headers={}, min_delay=0, retries=10):
+    def __init__(self, group, cookie_jar=None, headers={}, min_delay=0, retries=15):
         self.s = requests.Session()
         self.group = group
         self.min_delay = min_delay
@@ -110,7 +110,7 @@ class YahooGroupsAPI:
     def backoff_time(self, attempt):
         """Calculate backoff time from minimum delay and attempt number.
            Currently no good reason for choice of backoff, except not to increase too rapidly."""
-        return max(self.min_delay, random.uniform(0, attempt))
+        return self.min_delay*attempt+random.uniform(0, self.min_delay*attempt)
 
     def download_file(self, url, f=None, **args):
         with self.http_context(self.ww):
