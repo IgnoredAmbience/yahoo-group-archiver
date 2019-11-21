@@ -172,6 +172,11 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
     expectedTopics = init_messages['numTopics']
     totalRecords = init_messages['totalRecords']
     lastRecordId = init_messages['lastRecordId']
+    
+    if lastRecordId == 0:
+        logger.error("ERROR: no messages available.")
+        return
+    
 	# There may be fewer than totalRecords messages, likely due to deleted messages.
 	# We also found a group where expectedTopics was 1 less than the actual number of topics available, but the script still downloaded everything.
     logger.info("Expecting %d topics and up to %d messages.",expectedTopics,totalRecords)
@@ -180,7 +185,7 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
     unretrievableMessageIds = set()
     retrievedTopicIds = set()
     retrievedMessageIds = set()
-    potentialMessageIds = set(range(1,totalRecords+1))
+    potentialMessageIds = set(range(1,lastRecordId+1))
     
     
     # We need to find a valid topic ID to start the process, which we'll get by downloading a message. lastRecordId should be available.
