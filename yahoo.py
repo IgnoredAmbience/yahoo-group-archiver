@@ -588,16 +588,20 @@ def archive_calendar(yga):
     entityId = groupinfo['entityId']
 
     api_root = "https://calendar.yahoo.com/ws/v3"
-
+    
     # We get the wssid
     tmpUri = "%s/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % (api_root, entityId)
+    logger.info("Getting wssid. Expecting 401 or 403 response.")
     try:
         yga.download_file(tmpUri)  # We expect a 403 or 401  here
         logger.error("Attempt to get wssid returned HTTP 200, which is unexpected!")  # we should never hit this
         return
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 403 or e.response.status_code == 401:
-            tmpJson = json.loads(e.response.content)['calendarError']
+            try:
+                tmpJson = json.loads(e.response.content)['calendarError']
+            except:
+                logger.exception("ERROR: Couldn't load wssid exception to get calendarError.")
         else:
             logger.error("Attempt to get wssid returned an unexpected response status %d" % e.response.status_code)
             return
@@ -606,7 +610,7 @@ def archive_calendar(yga):
         logger.error("Couldn't download calendar/events: missing wssid")
         return
     wssid = tmpJson['wssid']
-
+    
     # Getting everything since the launch of Yahoo! Groups (January 30, 2001)
     archiveDate = datetime.datetime(2001, 1, 30)
     endDate = datetime.datetime(2025, 1, 1)
