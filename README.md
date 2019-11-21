@@ -11,6 +11,10 @@ Usage:
 pip3 install -r requirements.txt
 run-pipeline3 ./pipeline.py $USERNAME
 ```
+Watch:  
+http://tracker-test.ddns.net/yahoo-groups-api/
+
+---
 
 yahoo-group-archiver  
 manual mode
@@ -126,7 +130,3 @@ Message Range Options:
 Output Options:
   -w, --warc            Output WARC file of raw network requests. [Requires
                         warcio package installed]
->>>>>>> ecb47041c37311b731557c3bfd8284ada7145e91
-```
-Watch:  
-http://tracker-test.ddns.net/yahoo-groups-api/
