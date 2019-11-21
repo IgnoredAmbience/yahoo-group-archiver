@@ -110,7 +110,7 @@ class YahooGroupsAPI:
     def backoff_time(self, attempt):
         """Calculate backoff time from minimum delay and attempt number.
            Currently no good reason for choice of backoff, except not to increase too rapidly."""
-        return self.min_delay*attempt+random.uniform(0, self.min_delay*attempt)
+        return self.min_delay*1.6**attempt+random.uniform(0, self.min_delay*1.6**attempt)
 
     def download_file(self, url, f=None, **args):
         with self.http_context(self.ww):
