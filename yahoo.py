@@ -157,6 +157,7 @@ def archive_email(yga, message_subset=None, start=None, stop=None, skipHTML=Fals
             logger.exception("Failed to get message id: %d", id)
             continue
 
+
 def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
     logger = logging.getLogger('archive_topics')
 
@@ -170,187 +171,209 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
 
     expectedTopics = init_messages['numTopics']
     totalRecords = init_messages['totalRecords']
+    lastRecordId = init_messages['lastRecordId']
 	# There may be fewer than totalRecords messages, likely due to deleted messages.
 	# We also found a group where expectedTopics was 1 less than the actual number of topics available, but the script still downloaded everything.
     logger.info("Expecting %d topics and up to %d messages.",expectedTopics,totalRecords)
+    
+    unretrievableTopicIds = set()
+    unretrievableMessageIds = set()
+    retrievedTopicIds = set()
+    retrievedMessageIds = set()
+    potentialMessageIds = set(range(1,totalRecords+1))
+    
+    
+    # We need to find a valid topic ID to start the process, which we'll get by downloading a message. lastRecordId should be available.
+    startingTopicId = None
+    logger.info("Checking message ID %d to find topic.",lastRecordId)
+    try:
+        html_json = yga.messages(lastRecordId)
+        startingTopicId = html_json.get("topicId")
+        logger.info("The message is part of topic ID %d", startingTopicId)
+    except:
+        logger.exception("HTML grab failed for message %d", lastRecordId)
+        potentialMessageIds.remove(lastRecordId)
+        unretrievableMessageIds.add(lastRecordId)
+    
+    # We couldn't get lastRecordId for some reason, so try to find a topic using other messages.
+    if startingTopicId is None:
+        startingTopicId = find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds)
 
-	# To start the process, we need to download a single message to get a valid topic ID.
-	# If the --start arguement is used, try that message first. Otherwise, start at message ID 1.
-	# Go until we find a message or reach the final record.
-	# Message 1 should be available unless they deleted the first message ever posted.
-    logger.info("Looking for message to identify topic start point.")
-    msgNum = 1
-    if start is not None:
-        msgNum = start
-    topicId = 0
-    foundMessage = False
-    while (msgNum <= totalRecords) and (foundMessage is False):
+    # No valid messages for identifying topic.        
+    if startingTopicId is None:
+        logger.error("ERROR: Couldn't retrieve any messages.")
+        return
+    
+    # Download the starting topic and everything surrounding it (unless we hit a failure).    
+    logger.info("Starting topic archiving with topic ID %d.",startingTopicId)
+    process_surrounding_topics(startingTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+    
+    # If we got through the first run of process_surrounding_topics with no failures, assume we got everything.
+    if not unretrievableTopicIds:
+        logger.info("Topic archiving completed with no topic failures.")
+        
+    # Otherwise, continue trying to grab topics and messages until all potential messages are retrieved or found to be unretrievable.
+    else:
+        logger.info("Recovering from topic failures.")
+        while potentialMessageIds:
+            startingTopicId = find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds)
+            if startingTopicId is not None:
+                process_surrounding_topics(startingTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+           
+    logger.info("There are %d retrieved topic(s).",len(retrievedTopicIds))
+    logger.info("There are %d retrieved message(s).",len(retrievedMessageIds))           
+    logger.info("There are %d unretrievable topic(s).",len(unretrievableTopicIds))
+    logger.info("There are %d unretrievable message(s).",len(unretrievableMessageIds))
+    
+    # Save the tracking sets.
+    with open("retrievedTopicIds.json", 'wb') as f:
+            json.dump(list(retrievedTopicIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    with open("retrievedMessageIds.json", 'wb') as f:
+            json.dump(list(retrievedMessageIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    with open("unretrievableTopicIds.json", 'wb') as f:
+            json.dump(list(unretrievableTopicIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    with open("unretrievableMessageIds.json", 'wb') as f:
+            json.dump(list(unretrievableMessageIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)           
+
+    
+    # If requested, get the raw versions of every available message one at a time. There doesn't appear to be a raw view of an entire topic, so this is slower than the topic download.
+    if getRaw is True and alsoDownloadingEmail is False:
+        logger.info("Downloading raw versions of %d messages.",len(retrievedMessageIds))
+        with Mkchdir('email'):
+            archive_email(yga,retrievedMessageIds,skipHTML=True)
+
+
+
+# Find a topic ID from among potentialMessageIds to start topic archiving with.
+# Also save messages from unretrievable topics when possible.
+def find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds):
+    logger = logging.getLogger('find_topic_id')
+    
+    # Keep looking as long as the set of potential message IDs is not emty.
+    while potentialMessageIds:
+        # Check an arbitrary message.
+        msgId = potentialMessageIds.pop()
+        logger.info("Checking message ID %d to find topic.",msgId)
         try:
-            logger.info("Fetching html message id: %d", msgNum)
-            html_json = yga.messages(msgNum)
+            html_json = yga.messages(msgId)
             topicId = html_json.get("topicId")
             logger.info("The message is part of topic ID %d", topicId)
-            foundMessage = True
+            
+            # We've already retrieved this topic. This could indicate a bug.
+            if topicId in retrievedTopicIds:
+                logger.error("ERROR: This topic has already been archived.")
+                retrievedTopicIds.add(topicId)
+                continue
+            
+            # We've previously tried getting this topic, and it's no good.
+            # But sometimes Yahoo will give you a message in an unretrievable topic through the messages API.
+            # Since this is the only way to get the message, go ahead and save it.
+            if topicId in unretrievableTopicIds:
+                logger.info("This topic is known to be unretrievable. Saving individual message.")
+                retrievedMessageIds.add(msgId)
+                with Mkchdir('email'):
+                    with open("%s.json" % (msgId,), 'wb') as f:
+                        json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+
+                    if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
+                        with Mkchdir("%d_attachments" % msgId):
+                            process_single_attachment(yga, html_json['attachmentsInfo'])
+                logger.info("%d total messages downloaded.",len(retrievedMessageIds))
+                continue
+            
+            # We found a valid topic. Put msgId back in potentialMessageIds since it should be archived with the topic.
+            potentialMessageIds.add(msgId)
+            return topicId
+            
         except:
-            logger.exception("HTML grab failed for message %d", msgNum)
-            msgNum += 1
-
-    if foundMessage is False:
-        logger.info("No messages available.")
+            logger.exception("HTML grab failed for message %d", msgId)
+            unretrievableMessageIds.add(msgId)
+    
+    # Ran out of messages to check.        
+    return None
+    
+    
+def process_surrounding_topics(startingTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics):
+    logger = logging.getLogger(name="process_surrounding_topics")
+    topicResults = process_single_topic(startingTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+    if topicResults["gotTopic"] is False:
         return
-	
-    archivedTopicsCount = 0
-    totalMessagesInTopics = 0
-    nextTopicId = 0
-    prevTopicId = 0
-    retrievedMessageIds = list()
+        
+    nextTopicId = topicResults["nextTopicId"]
+    prevTopicId = topicResults["prevTopicId"]
+    if nextTopicId > 0:
+        logger.info("The next topic ID is %d.",nextTopicId)
+    else:
+        logger.info("There are no later topics.")
 
-	# Grab the first topic.
+    if prevTopicId > 0:
+        logger.info("The previous topic ID is %d.",prevTopicId)
+    else:
+        logger.info("There are no previous topics.")
+        
+        
+    # Grab all previous topics from the starting topic back.
+    logger.info("Retrieving previous topics.")
+    while prevTopicId > 0:
+        if prevTopicId in unretrievableTopicIds:
+            logger.info("Reached known unretrievable topic ID %d",prevTopicId)
+            break
+        topicResults = process_single_topic(prevTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+        prevTopicId = topicResults["prevTopicId"]
+        
+    # Grab all later topics from the starting topic forward.
+    logger.info("Retrieving later topics.")
+    while nextTopicId > 0:
+        if nextTopicId in unretrievableTopicIds:
+            logger.info("Reached known unretrievable topic ID %d",nextTopicId)
+            break
+        topicResults = process_single_topic(nextTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+        nextTopicId = topicResults["nextTopicId"]
+
+ 
+def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics):
+    logger = logging.getLogger(name="process_single_topic")
+    topicResults = {
+        "gotTopic": False,
+        "nextTopicId": 0,
+        "prevTopicId": 0
+    }
+    
+    # Grab the topic.
     try:
-        logger.info("Fetching first topic, id %d (1 of %d)", topicId, expectedTopics)
+        logger.info("Fetching topic id %d", topicId)
         topic_json = yga.topics(topicId,maxResults=999999)
         with open("%s.json" % (topicId,), 'wb') as f:
-                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-        archivedTopicsCount = archivedTopicsCount + 1		
-        totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
-        nextTopicId = topic_json.get("nextTopicId")
-        prevTopicId = topic_json.get("prevTopicId")
-        logger.info("Fetched first topic ID %d with message count %d.",topicId,topic_json['totalMsgInTopic'])
+            json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        retrievedTopicIds.add(topicId)
+        topicResults["gotTopic"] = True
+        topicResults["nextTopicId"] = topic_json.get("nextTopicId")
+        topicResults["prevTopicId"] = topic_json.get("prevTopicId")
+
         
         messages = topic_json.get("messages")
         for message in messages:
             # Track what messages we've gotten.
             msgId = message.get("msgId")
-            retrievedMessageIds.append(msgId)
-            
+            retrievedMessageIds.add(msgId)
+            try:
+                potentialMessageIds.remove(msgId)
+            except:
+                logger.exception("ERROR: Tried to remove msgId %d from potentialMessageIds when it wasn't there.",msgId)
+                            
             # Download messsage attachments if there are any.
             if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
                 with Mkchdir("%d_attachments" % msgId):
                     process_single_attachment(yga, message['attachmentsInfo'])
-
-        if nextTopicId > 0:
-            logger.info("The next topic ID is %d.",nextTopicId)
-        else:
-            logger.info("There are no later topics.")
-
-        if prevTopicId > 0:
-            logger.info("The previous topic ID is %d.",prevTopicId)
-        else:
-            logger.info("There are no previous topics.")
-    except:
-        logger.exception("First topic grab failed for topic ID %d.", topicId)
-		# Fall back to a full e-mail download, unless we're already doing that anyway.
-        if (alsoDownloadingEmail is False) and (getRaw is False):
-            logger.exception("Falling back to html e-mail download.")
-            with Mkchdir('email'):
-                archive_email(yga,skipRaw=True)
-        elif (alsoDownloadingEmail is False) and (getRaw is True):
-            logger.exception("Falling back to full e-mail download.")
-            with Mkchdir('email'):
-                archive_email(yga)
         
-    
-	# Get all previous and later topics. Topic ordering seems to be based on which topics were replied to most recently.
-    topicRetrievalError = False
-
-    # Grab all previous topics from the starting topic back. If starting at message 1, there may not be any.
-    logger.info("Retrieving previous topics.")
-    while prevTopicId > 0:
-        try:
-            archivedTopicsCount = archivedTopicsCount + 1
-			
-            if archivedTopicsCount > totalRecords + 100:
-                logger.info("We've archived %d topics, but are expecting at most %d messages. Stopping due to suspected infinite loop.",archivedTopicsCount,totalRecords)
-                return
-
-            logger.info("Fetching topic ID %d (%d of %d)", prevTopicId,archivedTopicsCount,expectedTopics)
-            topic_json = yga.topics(prevTopicId,maxResults=999999)
-            with open("%s.json" % (prevTopicId,), 'wb') as f:
-                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-            
-            totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
-            logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",prevTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
-
-
-            messages = topic_json.get("messages")
-            for message in messages:
-                # Track what messages we've gotten.
-                msgId = message.get("msgId")
-                retrievedMessageIds.append(msgId)
-            
-                # Download messsage attachments if there are any.
-                if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
-                    with Mkchdir("%d_attachments" % msgId):
-                        process_single_attachment(yga, message['attachmentsInfo'])
-
-            prevTopicId = topic_json.get("prevTopicId")
-            if prevTopicId <= 0:
-                logger.info("There are no previous topics.")
-        except:
-            logger.exception("Topic grab failed for topic ID %d", prevTopicId)
-            topicRetrievalError = True
-            break
-
-    # Grab all later topics from the starting topic forward.
-    logger.info("Retrieving later topics.")
-    while nextTopicId > 0:
-        try:
-            archivedTopicsCount = archivedTopicsCount + 1
-
-            if archivedTopicsCount > totalRecords + 100:
-                logger.info("We've archived %d topics, but are expecting at most %d messages. Stopping due to suspected infinite loop.",archivedTopicsCount,totalRecords)
-                return
-
-            logger.info("Fetching topic ID %d (%d of %d)", nextTopicId,archivedTopicsCount,expectedTopics)
-            topic_json = yga.topics(nextTopicId,maxResults=999999)
-            with open("%s.json" % (nextTopicId,), 'wb') as f:
-                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-            
-            totalMessagesInTopics = totalMessagesInTopics + topic_json['totalMsgInTopic']
-            logger.info("Fetched topic ID %d with message count %d. Total messages in topics so far: %d.",nextTopicId,topic_json['totalMsgInTopic'],totalMessagesInTopics)
-
-            messages = topic_json.get("messages")
-            for message in messages:
-                # Track what messages we've gotten.
-                msgId = message.get("msgId")
-                retrievedMessageIds.append(msgId)
-            
-                # Download messsage attachments if there are any.
-                if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
-                    with Mkchdir("%d_attachments" % msgId):
-                        process_single_attachment(yga, message['attachmentsInfo'])
-
-            nextTopicId = topic_json.get("nextTopicId")
-            if nextTopicId <= 0:
-                logger.info("There are no later topics.")
-        except:
-            logger.exception("Topic grab failed for topic ID %d", nextTopicId)
-            topicRetrievalError = True
-            break
-
-    # If requested, get the raw versions of every available message one at a time. There doesn't appear to be a raw view of an entire topic, so this is slower than the topic download.
-    if getRaw is True and alsoDownloadingEmail is False:
-        logger.info("Downloading raw versions of %d messages.",totalMessagesInTopics)
-        with Mkchdir('email'):
-            archive_email(yga,retrievedMessageIds,skipHTML=True)
-
-    # If we couldn't retrieve all topics, determine what potential message IDs we don't already have, then do an e-mail download of only those.
-    if topicRetrievalError is True and alsoDownloadingEmail is False:
-        logger.info("Failed to retrieve all topics. ")
-        potentialMessages = list(range(1,totalRecords))
-        unretrievedMessages = list(set(potentialMessages).difference(retrievedMessageIds))
-        logger.info("retrievedMessageIds: %s", str(retrievedMessageIds))
-        logger.info("potentialMessages: %s",str(potentialMessages))
-        logger.info("unretrievedMessages: %s",str(unretrievedMessages))
-        if getRaw is False:
-            logger.info("Falling back to html e-mail download for unretrieved messages.")
-            with Mkchdir('email'):
-                archive_email(yga,unretrievedMessages,skipRaw=True)
-        else:
-            with Mkchdir('email'):
-                logger.info("Falling back to full e-mail download for unretrieved messages.")
-                archive_email(yga,unretrievedMessages)
-
+        logger.info("Fetched topic ID %d with message count %d (topic %d of %d). %d total messages downloaded.",topicId,topic_json.get("totalMsgInTopic"),len(retrievedTopicIds),expectedTopics,len(retrievedMessageIds))        
+        
+    except:
+        logger.exception("ERROR downloading topic ID %d", topicId)
+        unretrievableTopicIds.add(topicId)
+        
+    return topicResults
+        
 
 
 def process_single_attachment(yga, attach):
