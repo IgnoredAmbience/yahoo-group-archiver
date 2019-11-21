@@ -95,26 +95,29 @@ def archive_message_content(yga, id, status="", skipHTML=False, skipRaw=False):
     logger = logging.getLogger('archive_message_content')
     
     if skipRaw is False:
-        try:
-            logger.info("Fetching  raw message id: %d %s", id, status)
-            raw_json = yga.messages(id, 'raw')
-            with open("%s_raw.json" % (id,), 'wb') as f:
-                json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-        except Exception:
-            logger.exception("Raw grab failed for message %d", id)
+        if file_keep("%s_raw.json" % (id,), " raw message id: %s" % (id,)) is False:
+            try:
+                logger.info("Fetching  raw message id: %d %s", id, status)
+                raw_json = yga.messages(id, 'raw')
+                with open("%s_raw.json" % (id,), 'wb') as f:
+                    json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            except Exception:
+                logger.exception("Raw grab failed for message %d", id)
 
     if skipHTML is False:
-        try:
-            logger.info("Fetching html message id: %d %s", id, status)
-            html_json = yga.messages(id)
-            with open("%s.json" % (id,), 'wb') as f:
-                json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        if file_keep("%s.json" % (id,), " raw message id: %s" % (id,)) is False:
+            try:
+                logger.info("Fetching html message id: %d %s", id, status)
+                html_json = yga.messages(id)
+                with open("%s.json" % (id,), 'wb') as f:
+                    json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
-            if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
-                with Mkchdir("%d_attachments" % id):
-                    process_single_attachment(yga, html_json['attachmentsInfo'])
-        except Exception:
-            logger.exception("HTML grab failed for message %d", id)
+                if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
+                    with Mkchdir("%d_attachments" % id):
+                        process_single_attachment(yga, html_json['attachmentsInfo'])
+            except Exception:
+                logger.exception("HTML grab failed for message %d", id)
+
 
 
 def archive_email(yga, message_subset=None, start=None, stop=None, skipHTML=False, skipRaw=False):
@@ -277,8 +280,9 @@ def find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicId
                 logger.info("This topic is known to be unretrievable. Saving individual message.")
                 retrievedMessageIds.add(msgId)
                 with Mkchdir('email'):
-                    with open("%s.json" % (msgId,), 'wb') as f:
-                        json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+                    if file_keep("%s.json" % (msgId,), "html message id: %d" % (msgId,)) is False:
+                        with open("%s.json" % (msgId,), 'wb') as f:
+                            json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
                     if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
                         with Mkchdir("%d_attachments" % msgId):
@@ -348,8 +352,10 @@ def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,r
     try:
         logger.info("Fetching topic id %d", topicId)
         topic_json = yga.topics(topicId,maxResults=999999)
-        with open("%s.json" % (topicId,), 'wb') as f:
-            json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        if file_keep("%s.json" % (topicId,), "topic id: %d" % (topicId,)) is False:
+            with open("%s.json" % (topicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+
         retrievedTopicIds.add(topicId)
         topicResults["gotTopic"] = True
         topicResults["nextTopicId"] = topic_json.get("nextTopicId")
@@ -384,20 +390,22 @@ def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,r
 def process_single_attachment(yga, attach):
     logger = logging.getLogger(name="process_single_attachment")
     for frec in attach:
-        logger.info("Fetching attachment '%s'", frec['filename'])
         fname = "%s-%s" % (frec['fileId'], frec['filename'])
-        with open(sanitise_file_name(fname), 'wb') as f:
-            if 'link' in frec:
-                # try and download the attachment
-                # (sometimes yahoo doesn't keep them)
-                try:
-                    yga.download_file(frec['link'], f=f)
-                except requests.exceptions.HTTPError as err:
-                    logger.error("ERROR downloading attachment '%s': %s", frec['link'], err)
-                continue
+        
+        if file_keep(sanitise_file_name(fname), "file: %s" % (sanitise_file_name(fname),)) is False:
+            with open(sanitise_file_name(fname), 'wb') as f:
+                logger.info("Fetching attachment '%s'", frec['filename'])
+                if 'link' in frec:
+                    # try and download the attachment
+                    # (sometimes yahoo doesn't keep them)
+                    try:
+                        yga.download_file(frec['link'], f=f)
+                    except requests.exceptions.HTTPError as err:
+                        logger.error("ERROR downloading attachment '%s': %s", frec['link'], err)
+                    continue
 
-            elif 'photoInfo' in frec:
-                process_single_photo(frec['photoInfo'],f)
+                elif 'photoInfo' in frec:
+                    process_single_photo(frec['photoInfo'],f)
 
 
 def process_single_photo(photoinfo,f):
@@ -446,9 +454,10 @@ def archive_files(yga, subdir=None):
             # Regular file
             name = html_unescape(path['fileName'])
             new_name = sanitise_file_name("%d_%s" % (n, name))
-            logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
-            with open(new_name, 'wb') as f:
-                yga.download_file(path['downloadURL'], f)
+            if file_keep(new_name, ": %s" % (new_name,)) is False:
+                logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
+                with open(new_name, 'wb') as f:
+                    yga.download_file(path['downloadURL'], f)
 
         elif path['type'] == 1:
             # Directory
@@ -519,11 +528,11 @@ def archive_photos(yga):
                 for photo in photos['photos']:
                     p += 1
                     pname = html_unescape(photo['photoName'])
-                    logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
-
                     fname = "%d-%s.jpg" % (photo['photoId'], pname)
-                    with open(sanitise_file_name(fname), 'wb') as f:
-                        process_single_photo(photo['photoInfo'],f)
+                    if file_keep(sanitise_file_name(fname), "photo: %s" % (sanitise_file_name(fname),)) is False:
+                        logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
+                        with open(sanitise_file_name(fname), 'wb') as f:
+                            process_single_photo(photo['photoInfo'],f)
 
 
 def archive_db(yga):
@@ -547,12 +556,14 @@ def archive_db(yga):
 
         name = "%s_%s.csv" % (table['tableId'], table['name'])
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
-        with open(sanitise_file_name(name), 'wb') as f:
-            yga.download_file(uri, f)
+        if file.exists(sanitise_file_name(name), "database: %s" % (sanitise_file_name(name),)) is False:
+            with open(sanitise_file_name(name), 'wb') as f:
+                yga.download_file(uri, f)
 
         records_json = yga.database(table['tableId'], 'records')
-        with open('%s_records.json' % table['tableId'], 'wb') as f:
-            json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        if file_keep('%s_records.json' % table['tableId'], "database records: %s_records.json" % (table['tableId'],)) is False:
+            with open('%s_records.json' % table['tableId'], 'wb') as f:
+                json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
 
 def archive_links(yga, subdir=''):
@@ -758,6 +769,23 @@ def sanitise_folder_name(name):
     return sanitise_file_name(name).replace('.', '_')
 
 
+def file_keep(fname, type = ""):
+    """
+    Test existance of given file name and global overwrite flag.
+    If not overwriting and present then log the fact and the data type (type).
+    Returns True if file present otherwise False
+    """
+    logger = logging.getLogger('file_keep')
+
+    if args.overwrite:
+        return False
+    
+    if os.path.exists(fname) is False:
+        return False
+    
+    logger.debug("File already present %s", type)
+    return True
+
 class Mkchdir:
     d = ""
 
@@ -840,6 +868,9 @@ if __name__ == "__main__":
                     help='Only archive general info about the group')
     po.add_argument('-m', '--members', action='store_true',
                     help='Only archive members')
+    po.add_argument('-o', '--overwrite', action='store_true',
+                    help='Overwrite existing files such as email and database records')
+
 
     pr = p.add_argument_group(title='Request Options')
     pr.add_argument('--user-agent', type=str,
