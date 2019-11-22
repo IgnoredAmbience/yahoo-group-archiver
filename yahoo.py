@@ -318,13 +318,12 @@ def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,r
         "prevTopicId": 0
     }
     
-    # Grab the topic.
+    # Grab the topic. Download and overwrite it even if it already exists in case additional messages have been posted to the topic.
     try:
         logger.info("Fetching topic ID %d", topicId)
         topic_json = yga.topics(topicId,maxResults=999999)
-        if file_keep("%s.json" % (topicId,), "topic id: %d" % (topicId,)) is False:
-            with open("%s.json" % (topicId,), 'wb') as f:
-                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        with open("%s.json" % (topicId,), 'wb') as f:
+            json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
         retrievedTopicIds.add(topicId)
         topicResults["gotTopic"] = True
