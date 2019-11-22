@@ -602,6 +602,7 @@ def archive_calendar(yga):
                 tmpJson = json.loads(e.response.content)['calendarError']
             except:
                 logger.exception("ERROR: Couldn't load wssid exception to get calendarError.")
+                return
         else:
             logger.error("Attempt to get wssid returned an unexpected response status %d" % e.response.status_code)
             return
