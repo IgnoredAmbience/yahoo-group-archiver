@@ -1,20 +1,29 @@
-yahoo-group-archiver
+yahoo-group-archiver  
+pipeline mode
 ====================
 
-This tool archives a Yahoo group using the non-public API used by the Yahoo Groups website UI.
+* Python 3.5 - 3.8  
 
-Features:
-* Saves full email content
-* Downloads attachments as separate files
-* Fetch all files
-* Fetch all photos
-* Fetch all database tables
-* Fetch all links
-* Fetch all events in the calendar
-* Fetch all polls
+git clone https://github.com/ArchiveTeam/yahoo-group-archiver.git  
+cd yahoo-group-archiver  
+Usage:
+```bash
+pip3 install -r requirements.txt
+run-pipeline3 ./pipeline.py $USERNAME
+```
+Watch:  
+http://tracker-test.ddns.net/yahoo-groups-api/
 
-Requirements:
-* Python 2.7 or 3+
+---
+
+yahoo-group-archiver  
+manual mode
+====================
+
+* Python 3.5 - 3.8  
+
+git clone https://github.com/ArchiveTeam/yahoo-group-archiver.git  
+cd yahoo-group-archiver  
 
 Usage:
 ```bash
@@ -53,10 +62,10 @@ Files will be placed into the directory structure groupname/{email,files,photos,
 ## Command Line Options
 ```
 usage: yahoo.py [-h] [-ct COOKIE_T] [-cy COOKIE_Y] [-ce COOKIE_E]
-                [-cf COOKIE_FILE] [-e] [-at] [-f] [-i] [-d] [-l] [-c] [-p]
-                [-a] [-m] [--user-agent USER_AGENT] [--start START]
-                [--stop STOP] [--ids IDS [IDS ...]] [-w] [-v] [--colour]
-                [--delay DELAY]
+                [-cf COOKIE_FILE] [-e] [-at] [-f] [-i] [-t] [-tr] [-d] [-l]
+                [-c] [-p] [-a] [-m] [-o] [--user-agent USER_AGENT]
+                [--start START] [--stop STOP] [--ids IDS [IDS ...]] [-w] [-v]
+                [--colour] [--delay DELAY]
                 group
 
 positional arguments:
@@ -87,12 +96,18 @@ What to archive:
   -at, --attachments    Only archive attachments (from attachments list)
   -f, --files           Only archive files
   -i, --photos          Only archive photo galleries
+  -t, --topics          Only archive HTML email and attachments through the
+                        topics API
+  -tr, --topicsWithRaw  Only archive both HTML and raw email and attachments
+                        through the topics API
   -d, --database        Only archive database
   -l, --links           Only archive links
   -c, --calendar        Only archive events
   -p, --polls           Only archive polls
   -a, --about           Only archive general info about the group
   -m, --members         Only archive members
+  -o, --overwrite       Overwrite existing files such as email and database
+                        records
 
 Request Options:
   --user-agent USER_AGENT
@@ -115,25 +130,3 @@ Message Range Options:
 Output Options:
   -w, --warc            Output WARC file of raw network requests. [Requires
                         warcio package installed]
-```
-
-## Alternatives to this tool
-### Yahoo Get My Data
-Yahoo have a ["Get My Data" tool](https://groups.yahoo.com/neo/getmydata) for downloading content of groups of which you
-are a member.
-It gives you:
-* all group emails in .mbox format, _with all addresses unredacted_
-* all files (except attachments)
-* all links
-* photos and attachments _you_ sent/uploaded to the group
-No further data is returned, even if you are group owner.
-
-The primary benefit to using the Yahoo tool is for retrieving the full, unredacted email archive for a group. Archival
-methods that scrape the API from a non-moderator/owner(?) account will have email addresses in the message contents
-redacted.
-
-Downsides to using this tool are that not all group content is returned, even for group owners!
-The current lag time from requesting the data to being able to download it is about a week at the time of writing.
-
-One user of Yahoo's Get My Data described it as ["woefully
-incomplete"](https://github.com/IgnoredAmbience/yahoo-group-archiver/issues/87).
