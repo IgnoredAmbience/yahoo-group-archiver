@@ -174,6 +174,7 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
 
     expectedTopics = init_messages['numTopics']
     
+    logger.info("Getting message metadata.")
     message_subset = archive_messages_metadata(yga)
     if len(message_subset) == 0:
         logger.error("ERROR: no messages available.")
@@ -181,7 +182,7 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
     
 	# Occasionally messages reported in the metadata aren't actually available from Yahoo.
 	# We also found a group where expectedTopics was 1 less than the actual number of topics available, but the script still downloaded everything.
-    logger.info("Expecting %d topics and up to %d messages.",expectedTopics,len(message_subset))
+    logger.info("Expecting %d topics and %d messages.",expectedTopics,len(message_subset))
     
     unretrievableTopicIds = set()
     unretrievableMessageIds = set()
@@ -237,17 +238,24 @@ def find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicId
             topicId = html_json.get("topicId")
             logger.info("The message is part of topic ID %d", topicId)
             
-            # We've already retrieved this topic. This could indicate a bug.
+            writeMessage = False
+            
+            # We've already retrieved this topic. This could indicate a bug, or maybe messages have been added since it was downloaded.
             if topicId in retrievedTopicIds:
                 logger.error("ERROR: This topic has already been archived.")
-                retrievedTopicIds.add(topicId)
-                continue
+                writeMessage = True
             
             # We've previously tried getting this topic, and it's no good.
-            # But sometimes Yahoo will give you a message in an unretrievable topic through the messages API.
+            # But 
             # Since this is the only way to get the message, go ahead and save it.
-            if topicId in unretrievableTopicIds:
+            elif topicId in unretrievableTopicIds:
                 logger.info("This topic is known to be unretrievable. Saving individual message.")
+                writeMessage = True
+                
+            
+            # If we got a message despite some issue with the topic, go ahead and save it.
+            # Sometimes Yahoo will give you a message in an unretrievable topic through the messages API.
+            if writeMessage:                
                 retrievedMessageIds.add(msgId)
                 with Mkchdir('email'):
                     if file_keep("%s.json" % (msgId,), "html message id: %d" % (msgId,)) is False:
@@ -260,9 +268,11 @@ def find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicId
                 logger.info("%d total messages downloaded.",len(retrievedMessageIds))
                 continue
             
+            
             # We found a valid topic. Put msgId back in potentialMessageIds since it should be archived with the topic.
-            potentialMessageIds.add(msgId)
-            return topicId
+            else:
+                potentialMessageIds.add(msgId)
+                return topicId
             
         except:
             logger.exception("HTML grab failed for message %d", msgId)
@@ -318,42 +328,62 @@ def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,r
         "prevTopicId": 0
     }
     
-    # Grab the topic. Download and overwrite it even if it already exists in case additional messages have been posted to the topic.
-    try:
-        logger.info("Fetching topic ID %d", topicId)
-        topic_json = yga.topics(topicId,maxResults=999999)
-        with open("%s.json" % (topicId,), 'wb') as f:
-            json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-
-        retrievedTopicIds.add(topicId)
-        topicResults["gotTopic"] = True
-        topicResults["nextTopicId"] = topic_json.get("nextTopicId")
-        topicResults["prevTopicId"] = topic_json.get("prevTopicId")
-
-        
-        messages = topic_json.get("messages")
-        for message in messages:
-            # Track what messages we've gotten.
-            msgId = message.get("msgId")
-            retrievedMessageIds.add(msgId)
-            try:
-                potentialMessageIds.remove(msgId)
-            except:
-                logger.exception("ERROR: Tried to remove msgId %d from potentialMessageIds when it wasn't there.",msgId)
-                            
-            # Download messsage attachments if there are any.
-            if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
-                with Mkchdir("%d_attachments" % msgId):
-                    process_single_attachment(yga, message['attachmentsInfo'])
-        
-        logger.info("Fetched topic ID %d with message count %d (topic %d of %d). %d total messages downloaded.",topicId,topic_json.get("totalMsgInTopic"),len(retrievedTopicIds),expectedTopics,len(retrievedMessageIds))        
-        
-    except:
-        logger.exception("ERROR downloading topic ID %d", topicId)
+    # Grab the topic.
+    topic_json = None
+    gotTopic = False
+    
+    # We already have the topic on disk and don't want to overwrite it.
+    if file_keep("%s.json" % (topicId,), "topic id: %d" % (topicId,)):
+        # However, we need the previous and next topic, so we have to load the json.
+        try:
+            with open('%s.json' % (topicId,), 'r') as f:
+                topic_json = json.load(f)
+            gotTopic = True
+        except:
+            logger.exception("ERROR: couldn't load %s.json from disk.",topicId)
+    
+    # We didn't load the topic from disk, so we need to try downloading it.
+    if gotTopic is False:
+        try:
+            logger.info("Fetching topic ID %d", topicId)
+            topic_json = yga.topics(topicId,maxResults=999999)
+            gotTopic = True
+            # Save it now.
+            with open("%s.json" % (topicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        except:
+            logger.exception("ERROR downloading topic ID %d", topicId)
+    
+    # We couldn't get the topic. Categorize it as unretrievable and return.
+    if gotTopic is False:
         unretrievableTopicIds.add(topicId)
+        return topicResults
+    
+    # We have the topic.
+    retrievedTopicIds.add(topicId)
+    topicResults["gotTopic"] = True
+    topicResults["nextTopicId"] = topic_json.get("nextTopicId")
+    topicResults["prevTopicId"] = topic_json.get("prevTopicId")
+
+    # Figure out what messages we got and download attachments.
+    messages = topic_json.get("messages")
+    for message in messages:
+        # Track what messages we've gotten.
+        msgId = message.get("msgId")
+        retrievedMessageIds.add(msgId)
+        unretrievableMessageIds.discard(msgId) # probably not in there, but possible if we got an intermittent timeout
+        try:
+            potentialMessageIds.remove(msgId)
+        except:
+            logger.exception("ERROR: Tried to remove msgId %d from potentialMessageIds when it wasn't there.",msgId)
+                            
+        # Download messsage attachments if there are any.
+        if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
+            with Mkchdir("%d_attachments" % msgId):
+                process_single_attachment(yga, message['attachmentsInfo'])
         
+    logger.info("Fetched topic ID %d with message count %d (topic %d of %d). %d total messages downloaded.",topicId,topic_json.get("totalMsgInTopic"),len(retrievedTopicIds),expectedTopics,len(retrievedMessageIds))   
     return topicResults
-        
 
 
 def process_single_attachment(yga, attach):
