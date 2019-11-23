@@ -161,7 +161,7 @@ def archive_email(yga, message_subset=None, start=None, stop=None, skipHTML=Fals
             continue
 
 
-def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
+def archive_topics(yga):
     logger = logging.getLogger('archive_topics')
 
 	# Grab messages for initial counts and permissions check
@@ -212,15 +212,6 @@ def archive_topics(yga, start=None, alsoDownloadingEmail = False, getRaw=False):
             json.dump(list(unretrievableTopicIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
     with open("unretrievableMessageIds.json", 'wb') as f:
             json.dump(list(unretrievableMessageIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)           
-
-    
-    # If requested, get the raw versions of every message one at a time. There doesn't appear to be a raw view of an entire topic, so this is slower than the topic download.
-    # This will retry any we couldn't get as html, though these will likely fail as well.
-    if getRaw is True and alsoDownloadingEmail is False:
-        logger.info("Downloading raw versions of %d messages.",len(message_subset))
-        with Mkchdir('email'):
-            archive_email(yga,message_subset,skipHTML=True)
-
 
 
 # Find a topic ID from among potentialMessageIds to start topic archiving with.
@@ -846,7 +837,7 @@ if __name__ == "__main__":
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
-                    help='Only archive email and attachments (from email)')
+                    help='Only archive html and raw email and attachments (from email) through the messages API')
     po.add_argument('-at', '--attachments', action='store_true',
                     help='Only archive attachments (from attachments list)')
     po.add_argument('-f', '--files', action='store_true',
@@ -855,8 +846,8 @@ if __name__ == "__main__":
                     help='Only archive photo galleries')
     po.add_argument('-t', '--topics', action='store_true',
                     help='Only archive HTML email and attachments through the topics API')
-    po.add_argument('-tr', '--topicsWithRaw', action='store_true',
-                    help='Only archive both HTML and raw email and attachments through the topics API')
+    po.add_argument('-r', '--raw', action='store_true',
+                    help='Only archive raw email without attachemnts through the messages API')
     po.add_argument('-d', '--database', action='store_true',
                     help='Only archive database')
     po.add_argument('-l', '--links', action='store_true',
@@ -931,10 +922,12 @@ if __name__ == "__main__":
 
     yga = YahooGroupsAPI(args.group, cookie_jar, headers, min_delay=args.delay)
 
+    # Default to all unique content. This includes topics and raw email, 
+    # but not the full email download since that would duplicate html emails we get through topics.
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
-            args.polls or args.attachments or args.members or args.topics or args.topicsWithRaw):
-        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = \
-            args.polls = args.attachments = args.members = args.topics = args.topicsWithRaw = True
+            args.polls or args.attachments or args.members or args.topics or args.raw):
+        args.files = args.photos = args.database = args.links = args.calendar = args.about = \
+            args.polls = args.attachments = args.members = args.topics = args.raw = True
 
     with Mkchdir(args.group, sanitize=False):
         log_file_handler = logging.FileHandler('archive.log')
@@ -964,10 +957,10 @@ if __name__ == "__main__":
                 archive_photos(yga)
         if args.topics:
             with Mkchdir('topics'):
-                archive_topics(yga,start=args.start,alsoDownloadingEmail = args.email)
-        if args.topicsWithRaw:
-            with Mkchdir('topics'):
-                archive_topics(yga,start=args.start,alsoDownloadingEmail = args.email,getRaw=True)
+                archive_topics(yga)
+        if args.raw:
+            with Mkchdir('email'):
+                archive_email(yga, message_subset=args.ids, start=args.start, stop=args.stop,skipHTML=True)
         if args.database:
             with Mkchdir('databases'):
                 archive_db(yga)
