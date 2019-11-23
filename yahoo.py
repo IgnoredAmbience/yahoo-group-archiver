@@ -547,7 +547,7 @@ def archive_db(yga):
 
         name = "%s_%s.csv" % (table['tableId'], table['name'])
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
-        if file.exists(sanitise_file_name(name), "database: %s" % (sanitise_file_name(name),)) is False:
+        if file_keep(sanitise_file_name(name), "database: %s" % (sanitise_file_name(name),)) is False:
             with open(sanitise_file_name(name), 'wb') as f:
                 yga.download_file(uri, f)
 
