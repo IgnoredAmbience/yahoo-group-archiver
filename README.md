@@ -92,7 +92,8 @@ Authentication Options:
 What to archive:
   By default, all the below.
 
-  -e, --email           Only archive email and attachments (from email)
+  -e, --email           Only archive html and raw email and attachments (from email) 
+                        through the messages API
   -at, --attachments    Only archive attachments (from attachments list)
   -f, --files           Only archive files
   -i, --photos          Only archive photo galleries
