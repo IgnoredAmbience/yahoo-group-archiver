@@ -847,7 +847,7 @@ if __name__ == "__main__":
     po.add_argument('-t', '--topics', action='store_true',
                     help='Only archive HTML email and attachments through the topics API')
     po.add_argument('-r', '--raw', action='store_true',
-                    help='Only archive raw email without attachemnts through the messages API')
+                    help='Only archive raw email without attachments through the messages API')
     po.add_argument('-d', '--database', action='store_true',
                     help='Only archive database')
     po.add_argument('-l', '--links', action='store_true',
