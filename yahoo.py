@@ -241,12 +241,12 @@ def find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicId
             writeMessage = False
             
             # We've already retrieved this topic. This could indicate a bug, or maybe messages have been added since it was downloaded.
+            # We'll want to save the individual message.
             if topicId in retrievedTopicIds:
                 logger.error("ERROR: This topic has already been archived.")
                 writeMessage = True
             
             # We've previously tried getting this topic, and it's no good.
-            # But 
             # Since this is the only way to get the message, go ahead and save it.
             elif topicId in unretrievableTopicIds:
                 logger.info("This topic is known to be unretrievable. Saving individual message.")
@@ -266,7 +266,7 @@ def find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicId
                         with Mkchdir("%d_attachments" % msgId):
                             process_single_attachment(yga, html_json['attachmentsInfo'])
                 logger.info("%d total messages downloaded.",len(retrievedMessageIds))
-                continue
+                continue # Keep trying to find a topic ID.
             
             
             # We found a valid topic. Put msgId back in potentialMessageIds since it should be archived with the topic.
@@ -374,6 +374,7 @@ def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,r
         unretrievableMessageIds.discard(msgId) # probably not in there, but possible if we got an intermittent timeout
         try:
             potentialMessageIds.remove(msgId)
+        # Intermittent timeouts can cause this.
         except:
             logger.exception("ERROR: Tried to remove msgId %d from potentialMessageIds when it wasn't there.",msgId)
                             
