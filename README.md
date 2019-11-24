@@ -40,7 +40,7 @@ The cookies should look like this, where `someLongText` and `someShortText` are 
 
 In Google Chrome these steps are required:
 1. Go to [Yahoo Groups](https://groups.yahoo.com/neo).
-2. Click the 🔒 padlock, or ⓘ (cicled letter i) in the address bar to the left of the website address.
+2. Click the 🔒 padlock, or ⓘ (circled letter i) in the address bar to the left of the website address.
 3. Click "Cookies".
 4. On the Allowed tab select "Yahoo.com" followed by "Cookies" in the tree listing.
 5. Select the T cookie and copy the Content field in place of `<T_cookie>` in the above command line.
@@ -62,7 +62,7 @@ Files will be placed into the directory structure groupname/{email,files,photos,
 ## Command Line Options
 ```
 usage: yahoo.py [-h] [-ct COOKIE_T] [-cy COOKIE_Y] [-ce COOKIE_E]
-                [-cf COOKIE_FILE] [-e] [-at] [-f] [-i] [-t] [-tr] [-d] [-l]
+                [-cf COOKIE_FILE] [-e] [-at] [-f] [-i] [-t] [-r] [-d] [-l]
                 [-c] [-p] [-a] [-m] [-o] [--user-agent USER_AGENT]
                 [--start START] [--stop STOP] [--ids IDS [IDS ...]] [-w] [-v]
                 [--colour] [--delay DELAY]
@@ -92,14 +92,15 @@ Authentication Options:
 What to archive:
   By default, all the below.
 
-  -e, --email           Only archive email and attachments (from email)
+  -e, --email           Only archive html and raw email and attachments (from email) 
+                        through the messages API
   -at, --attachments    Only archive attachments (from attachments list)
   -f, --files           Only archive files
   -i, --photos          Only archive photo galleries
-  -t, --topics          Only archive HTML email and attachments through the
-                        topics API
-  -tr, --topicsWithRaw  Only archive both HTML and raw email and attachments
-                        through the topics API
+  -t, --topics          Only archive HTML email and attachments through 
+                        the topics API
+  -r, --raw             Only archive raw email without attachments through 
+                        the messages API
   -d, --database        Only archive database
   -l, --links           Only archive links
   -c, --calendar        Only archive events
