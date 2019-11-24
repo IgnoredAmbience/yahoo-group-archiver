@@ -327,7 +327,7 @@ def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,r
     if file_keep("%s.json" % (topicId,), "topic id: %d" % (topicId,)):
         # However, we need the previous and next topic, so we have to load the json.
         try:
-            with open('%s.json' % (topicId,), 'r') as f:
+            with open('%s.json' % (topicId,), 'r', encoding='utf-8') as f:
                 topic_json = json.load(f)
             gotTopic = True
         except:
