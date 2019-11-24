@@ -207,7 +207,14 @@ class YgaArgs(object):
             '../../../yahoo.py',
              '-a',
              '-t',
-             '-w'
+             '-i',
+             '-d',
+             '-f',
+             '-p',
+             '-m',
+             '-c',
+             '-l',
+             '-w',
         ]
 
         item_name = item['item_name']
