@@ -52,7 +52,7 @@ def get_best_photoinfo(photoInfoArr, exclude=[]):
     best = photoInfoArr[0]
     for info in photoInfoArr:
         if info['photoType'] not in rs:
-            logger.error("photoType '%s' not known", info['photoType'])
+            logger.error("photoType '%s' not known", info['photoType'].encode('utf-8'))
             continue
         if rs[info['photoType']] >= rs[best['photoType']]:
             best = info
@@ -385,14 +385,14 @@ def process_single_attachment(yga, attach):
         
         if file_keep(sanitise_file_name(fname), "file: %s" % (sanitise_file_name(fname),)) is False:
             with open(sanitise_file_name(fname), 'wb') as f:
-                logger.info("Fetching attachment '%s'", frec['filename'])
+                logger.info("Fetching attachment '%s'", frec['filename'].encode('utf-8'))
                 if 'link' in frec:
                     # try and download the attachment
                     # (sometimes yahoo doesn't keep them)
                     try:
                         yga.download_file(frec['link'], f=f)
                     except requests.exceptions.HTTPError as err:
-                        logger.error("ERROR downloading attachment '%s': %s", frec['link'], err)
+                        logger.error("ERROR downloading attachment '%s': %s", frec['link'].encode('utf-8'), err)
                     continue
 
                 elif 'photoInfo' in frec:
@@ -419,7 +419,7 @@ def process_single_photo(photoinfo,f):
             ok = True
         except requests.exceptions.HTTPError as err:
             # yahoo says no. exclude this size and try for another.
-            logger.error("ERROR downloading '%s' variant %s: %s", bestPhotoinfo['displayURL'],
+            logger.error("ERROR downloading '%s' variant %s: %s", bestPhotoinfo['displayURL'].encode('utf-8'),
                          bestPhotoinfo['photoType'], err)
             exclude.append(bestPhotoinfo['photoType'])
 
@@ -446,7 +446,7 @@ def archive_files(yga, subdir=None):
             name = html_unescape(path['fileName'])
             new_name = sanitise_file_name("%d_%s" % (n, name))
             if file_keep(new_name, ": %s" % (new_name,)) is False:
-                logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
+                logger.info("Fetching file '%s' as '%s' (%d/%d)", name.encode('utf-8'), new_name.encode('utf-8'), n, sz)
                 with open(new_name, 'wb') as f:
                     yga.download_file(path['downloadURL'], f)
 
@@ -454,7 +454,7 @@ def archive_files(yga, subdir=None):
             # Directory
             name = html_unescape(path['fileName'])
             new_name = "%d_%s" % (n, name)
-            logger.info("Fetching directory '%s' as '%s' (%d/%d)", name, sanitise_folder_name(new_name), n, sz)
+            logger.info("Fetching directory '%s' as '%s' (%d/%d)", name.encode('utf-8'), sanitise_folder_name(new_name).encode('utf-8'), n, sz)
             with Mkchdir(new_name):     # (new_name sanitised again by Mkchdir)
                 pathURI = unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
@@ -502,7 +502,7 @@ def archive_photos(yga):
         n += 1
         name = html_unescape(a['albumName'])
         # Yahoo sometimes has an off-by-one error in the album count...
-        logger.info("Fetching album '%s' (%d/%d)", name, n, albums['total'])
+        logger.info("Fetching album '%s' (%d/%d)", name.encode('utf-8'), n, albums['total'])
 
         folder = "%d-%s" % (a['albumId'], name)
 
@@ -521,7 +521,7 @@ def archive_photos(yga):
                     pname = html_unescape(photo['photoName'])
                     fname = "%d-%s.jpg" % (photo['photoId'], pname)
                     if file_keep(sanitise_file_name(fname), "photo: %s" % (sanitise_file_name(fname),)) is False:
-                        logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
+                        logger.info("Fetching photo '%s' (%d/%d)", pname.encode('utf-8'), p, photos['total'])
                         with open(sanitise_file_name(fname), 'wb') as f:
                             process_single_photo(photo['photoInfo'],f)
 
@@ -543,7 +543,7 @@ def archive_db(yga):
     nts = len(db_json['tables'])
     for table in db_json['tables']:
         n += 1
-        logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
+        logger.info("Downloading database table '%s' (%d/%d)", table['name'].encode('utf-8'), n, nts)
 
         name = "%s_%s.csv" % (table['tableId'], table['name'])
         uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
@@ -568,12 +568,12 @@ def archive_links(yga, subdir=''):
 
     with open('links.json', 'wb') as f:
         json.dump(links, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-        logger.info("Written %d links from %s folder", links['numLink'], subdir)
+        logger.info("Written %d links from %s folder", links['numLink'], subdir.encode('utf-8'))
 
     n = 0
     for a in links['dirs']:
         n += 1
-        logger.info("Fetching links folder '%s' (%d/%d)", a['folder'], n, links['numDir'])
+        logger.info("Fetching links folder '%s' (%d/%d)", a['folder'].encode('utf-8'), n, links['numDir'])
 
         with Mkchdir(a['folder']):
             archive_links(yga, "%s/%s" % (subdir, a['folder']))
@@ -659,7 +659,7 @@ def archive_about(yga):
         # Base filename on largest photo size.
         bestphotoinfo = get_best_photoinfo(statistics['groupHomePage']['photoInfo'], exclude)
         fname = 'GroupPhoto-%s' % basename(bestphotoinfo['displayURL']).split('?')[0]
-        logger.info("Downloading the photo in group description as %s", fname)
+        logger.info("Downloading the photo in group description as %s", fname.encode('utf-8'))
         with open(sanitise_file_name(fname), 'wb') as f:
             process_single_photo(statistics['groupHomePage']['photoInfo'],f)
 
@@ -667,7 +667,7 @@ def archive_about(yga):
         # Base filename on largest photo size.
         bestphotoinfo = get_best_photoinfo(statistics['groupCoverPhoto']['photoInfo'], exclude)
         fname = 'GroupCover-%s' % basename(bestphotoinfo['displayURL']).split('?')[0]
-        logger.info("Downloading the group cover as %s", fname)
+        logger.info("Downloading the group cover as %s", fname.encode('utf-8'))
         with open(sanitise_file_name(fname), 'wb') as f:
             process_single_photo(statistics['groupCoverPhoto']['photoInfo'],f)
 
@@ -775,7 +775,7 @@ def file_keep(fname, type = ""):
     if os.path.exists(fname) is False:
         return False
     
-    logger.debug("File already present %s", type)
+    logger.debug("File already present %s", type.encode('utf-8'))
     return True
 
 class Mkchdir:
