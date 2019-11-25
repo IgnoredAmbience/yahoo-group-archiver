@@ -37,6 +37,7 @@ else:
 WARC_META_PARAMS = OrderedDict([('software', 'yahoo-group-archiver'),
                                 ('version','20191123.00'),
                                 ('format', 'WARC File Format 1.0'),
+                                ('command-arguments', ' '.join(sys.argv))
                                 ])
 
 
