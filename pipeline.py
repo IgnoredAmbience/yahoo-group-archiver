@@ -64,7 +64,7 @@ if not PYTHON:
 #
 # Update this each time you make a non-cosmetic change.
 # It will be added to the WARC files and reported to the tracker.
-VERSION = '20191121.00'
+VERSION = '20191123.00'
 USER_AGENT = 'ArchiveTeam'
 TRACKER_ID = 'yahoo-groups-api'
 # TRACKER_HOST = 'tracker.archiveteam.org'  #prod-env
@@ -207,7 +207,14 @@ class YgaArgs(object):
             '../../../yahoo.py',
              '-a',
              '-t',
-             '-w'
+             '-i',
+             '-d',
+             '-f',
+             '-p',
+             '-m',
+             '-c',
+             '-l',
+             '-w',
         ]
 
         item_name = item['item_name']
