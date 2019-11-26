@@ -56,6 +56,11 @@ class Recoverable(YGAException):
     pass
 
 
+class BadSize(YGAException):
+    """The filesize is between 60 and 68 bytes, which could be in error"""
+    pass
+
+
 class YahooGroupsAPI:
     BASE_URI = "https://groups.yahoo.com/api"
 
@@ -131,6 +136,14 @@ class YahooGroupsAPI:
                         self.logger.warning("Giving up, too many failed attempts at downloading %s", url)
                 elif r.status_code != 200:
                     self.logger.error("Unknown %d error for %s, giving up on this download", r.status_code, url)
+                elif len(r.content) in range(60, 69):
+                    self.logger.info("Got potentially invalid size of %d for %s, will sleep and retry", len(r.content), url)
+                    if attempt < self.retries-1:
+                        delay = self.backoff_time(attempt)
+                        self.logger.info("Attempt %d, delaying for %.2f seconds", attempt+1, delay)
+                        time.sleep(delay)
+                        continue
+                    self.logger.warning("Giving up, too many potentially failed attempts at downloading %s", url)
                 r.raise_for_status()
                 break
 
@@ -162,12 +175,14 @@ class YahooGroupsAPI:
                         raise Unauthorized()
                     elif code == 404:
                         raise NotFound()
+                    elif len(r.content) in range(60, 69):
+                        raise BadSize()
                     elif code != 200:
                         # TODO: Test ygError response?
                         raise Recoverable()
 
                     return r.json()['ygData']
-                except (ConnectionError, Timeout, Recoverable) as e:
+                except (ConnectionError, Timeout, Recoverable, BadSize) as e:
                     self.logger.info("API query failed for '%s': %s", uri, e)
                     self.logger.debug("Exception detail:", exc_info=e)
 

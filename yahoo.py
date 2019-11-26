@@ -335,18 +335,23 @@ def archive_db(yga):
     nts = len(db_json['tables'])
     for table in db_json['tables']:
         n += 1
-        logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
+        try:
+            logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
 
-        name = "%s_%s.csv" % (table['tableId'], table['name'])
-        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
-        with open(sanitise_file_name(name), 'wb') as f:
-            yga.download_file(uri, f)
-        set_mtime(sanitise_file_name(name), table['dateLastModified'])
+            name = "%s_%s.csv" % (table['tableId'], table['name'])
+            uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
 
-        records_json = yga.database(table['tableId'], 'records')
-        with open('%s_records.json' % table['tableId'], 'wb') as f:
-            json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-        set_mtime('%s_records.json' % table['tableId'], table['dateLastModified'])
+            with open(sanitise_file_name(name), 'wb') as f:
+                yga.download_file(uri, f)
+            set_mtime(sanitise_file_name(name), table['dateLastModified'])
+
+            records_json = yga.database(table['tableId'], 'records')
+            with open('%s_records.json' % table['tableId'], 'wb') as f:
+                json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            set_mtime('%s_records.json' % table['tableId'], table['dateLastModified'])
+        except Exception:
+            logger.exception("Failed to get table '%s' (%d/%d)", table['name'], n, nts)
+            continue
 
 
 def archive_links(yga, subdir=''):
@@ -509,16 +514,21 @@ def archive_polls(yga):
     totalPolls = len(pollsList)
     logger.info("Found %d polls to grab", totalPolls)
 
-    n = 1
+    n = 0
     for p in pollsList:
-        logger.info("Downloading poll %d [%d/%d]", p['surveyId'], n, totalPolls)
-        pollInfo = yga.polls(p['surveyId'])
-        fname = '%s-%s.json' % (n, p['surveyId'])
-
-        with open(fname, 'wb') as f:
-            json.dump(pollInfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-        set_mtime(fname, pollInfo['dateCreated'])
         n += 1
+        try:
+            logger.info("Downloading poll %d [%d/%d]", p['surveyId'], n, totalPolls)
+            pollInfo = yga.polls(p['surveyId'])
+            fname = '%s-%s.json' % (n, p['surveyId'])
+
+            with open(fname, 'wb') as f:
+                json.dump(pollInfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            set_mtime(fname, pollInfo['dateCreated'])
+        except Exception:
+            logger.exception("Failed to get poll %d [%d/%d]", p['surveyId'], n, totalPolls)
+            continue
+
 
 
 def archive_members(yga):
