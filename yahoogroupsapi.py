@@ -161,7 +161,7 @@ class YahooGroupsAPI:
 
                     code = r.status_code
                     if code == 307:
-                        raise NotAuthenticated()
+                        raise Recoverable() # NotAuthenticated()
                     elif code == 401 or code == 403:
                         raise Unauthorized()
                     elif code == 404:

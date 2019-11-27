@@ -1,3 +1,4 @@
 responses
 pytest
+flake8
 -r requirements.txt

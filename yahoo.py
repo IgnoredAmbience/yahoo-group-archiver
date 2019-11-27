@@ -37,6 +37,7 @@ else:
 WARC_META_PARAMS = OrderedDict([('software', 'yahoo-group-archiver'),
                                 ('version','20191123.00'),
                                 ('format', 'WARC File Format 1.0'),
+                                ('command-arguments', ' '.join(sys.argv))
                                 ])
 
 
@@ -930,7 +931,7 @@ if __name__ == "__main__":
             args.polls = args.attachments = args.members = args.topics = args.raw = True
 
     with Mkchdir(args.group, sanitize=False):
-        log_file_handler = logging.FileHandler('archive.log')
+        log_file_handler = logging.FileHandler('archive.log','w','utf-8')
         log_file_handler.setFormatter(log_formatter)
         root_logger.addHandler(log_file_handler)
 
