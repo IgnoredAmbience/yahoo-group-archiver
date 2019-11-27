@@ -104,7 +104,8 @@ def archive_message_content(yga, id, status="", skipHTML=False, skipRaw=False):
                 raw_json = yga.messages(id, 'raw')
                 with open(fname, 'wb') as f:
                     json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-                set_mtime(fname, int(raw_json['postDate']))
+                if 'postDate' in raw_json:
+                    set_mtime(fname, int(raw_json['postDate']))
             except Exception:
                 logger.exception("Raw grab failed for message %d", id)
 
@@ -116,12 +117,14 @@ def archive_message_content(yga, id, status="", skipHTML=False, skipRaw=False):
                 html_json = yga.messages(id)
                 with open(fname, 'wb') as f:
                     json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-                set_mtime(fname, int(html_json['postDate']))
+                if 'postDate' in html_json:
+                    set_mtime(fname, int(html_json['postDate']))
 
                 if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
                     with Mkchdir("%d_attachments" % id):
                         process_single_attachment(yga, html_json['attachmentsInfo'])
-                    set_mtime(sanitise_folder_name("%d_attachments" % id), int(html_json['postDate']))
+                    if 'postDate' in html_json:
+                        set_mtime(sanitise_folder_name("%d_attachments" % id), int(html_json['postDate']))
             except Exception:
                 logger.exception("HTML grab failed for message %d", id)
 
