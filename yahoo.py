@@ -12,6 +12,7 @@ import math
 import os
 import re
 import requests.exceptions
+import time
 import sys
 import unicodedata
 from os.path import basename
@@ -94,31 +95,35 @@ def archive_messages_metadata(yga):
 
 def archive_message_content(yga, id, status="", skipHTML=False, skipRaw=False):
     logger = logging.getLogger('archive_message_content')
-    
+
     if skipRaw is False:
-        if file_keep("%s_raw.json" % (id,), " raw message id: %s" % (id,)) is False:
+        fname = "%s_raw.json" % (id,)
+        if file_keep(fname, " raw message id: %s" % (id,)) is False:
             try:
                 logger.info("Fetching  raw message id: %d %s", id, status)
                 raw_json = yga.messages(id, 'raw')
-                with open("%s_raw.json" % (id,), 'wb') as f:
+                with open(fname, 'wb') as f:
                     json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+                set_mtime(fname, int(raw_json['postDate']))
             except Exception:
                 logger.exception("Raw grab failed for message %d", id)
 
     if skipHTML is False:
-        if file_keep("%s.json" % (id,), " raw message id: %s" % (id,)) is False:
+        fname = "%s.json" % (id,)
+        if file_keep(fname, " raw message id: %s" % (id,)) is False:
             try:
                 logger.info("Fetching html message id: %d %s", id, status)
                 html_json = yga.messages(id)
-                with open("%s.json" % (id,), 'wb') as f:
+                with open(fname, 'wb') as f:
                     json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+                set_mtime(fname, int(html_json['postDate']))
 
                 if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
                     with Mkchdir("%d_attachments" % id):
                         process_single_attachment(yga, html_json['attachmentsInfo'])
+                    set_mtime(sanitise_folder_name("%d_attachments" % id), int(html_json['postDate']))
             except Exception:
                 logger.exception("HTML grab failed for message %d", id)
-
 
 
 def archive_email(yga, message_subset=None, start=None, stop=None, skipHTML=False, skipRaw=False):
@@ -382,10 +387,10 @@ def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,r
 def process_single_attachment(yga, attach):
     logger = logging.getLogger(name="process_single_attachment")
     for frec in attach:
-        fname = "%s-%s" % (frec['fileId'], frec['filename'])
-        
-        if file_keep(sanitise_file_name(fname), "file: %s" % (sanitise_file_name(fname),)) is False:
-            with open(sanitise_file_name(fname), 'wb') as f:
+        fname = sanitise_file_name("%s-%s" % (frec['fileId'], frec['filename']))
+
+        if file_keep(fname, "file: %s" % (fname,)) is False:
+            with open(fname, 'wb') as f:
                 logger.info("Fetching attachment '%s'", frec['filename'])
                 if 'link' in frec:
                     # try and download the attachment
@@ -398,6 +403,8 @@ def process_single_attachment(yga, attach):
 
                 elif 'photoInfo' in frec:
                     process_single_photo(frec['photoInfo'],f)
+
+            set_mtime(fname, frec['modificationDate'])
 
 
 def process_single_photo(photoinfo,f):
@@ -450,6 +457,7 @@ def archive_files(yga, subdir=None):
                 logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
                 with open(new_name, 'wb') as f:
                     yga.download_file(path['downloadURL'], f)
+                set_mtime(new_name, path['createdTime'])
 
         elif path['type'] == 1:
             # Directory
@@ -459,6 +467,7 @@ def archive_files(yga, subdir=None):
             with Mkchdir(new_name):     # (new_name sanitised again by Mkchdir)
                 pathURI = unquote(path['pathURI'])
                 archive_files(yga, subdir=pathURI)
+            set_mtime(sanitise_folder_name(new_name), path['createdTime'])
 
 
 def archive_attachments(yga):
@@ -484,6 +493,7 @@ def archive_attachments(yga):
             with open('attachmentinfo.json', 'wb') as f:
                 json.dump(a_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
                 process_single_attachment(yga, a_json['files'])
+        set_mtime(sanitise_folder_name(a['attachmentId']), a['modificationDate'])
 
 
 def archive_photos(yga):
@@ -520,11 +530,14 @@ def archive_photos(yga):
                 for photo in photos['photos']:
                     p += 1
                     pname = html_unescape(photo['photoName'])
-                    fname = "%d-%s.jpg" % (photo['photoId'], pname)
-                    if file_keep(sanitise_file_name(fname), "photo: %s" % (sanitise_file_name(fname),)) is False:
+                    fname = sanitise_file_name("%d-%s.jpg" % (photo['photoId'], pname))
+                    if file_keep(fname, "photo: %s" % (fname,)) is False:
                         logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
-                        with open(sanitise_file_name(fname), 'wb') as f:
+                        with open(fname, 'wb') as f:
                             process_single_photo(photo['photoInfo'],f)
+                        set_mtime(fname, photo['creationDate'])
+
+        set_mtime(sanitise_folder_name(folder), a['modificationDate'])
 
 
 def archive_db(yga):
@@ -544,18 +557,25 @@ def archive_db(yga):
     nts = len(db_json['tables'])
     for table in db_json['tables']:
         n += 1
-        logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
+        try:
+            logger.info("Downloading database table '%s' (%d/%d)", table['name'], n, nts)
 
-        name = "%s_%s.csv" % (table['tableId'], table['name'])
-        uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
-        if file_keep(sanitise_file_name(name), "database: %s" % (sanitise_file_name(name),)) is False:
-            with open(sanitise_file_name(name), 'wb') as f:
-                yga.download_file(uri, f)
+            name = "%s_%s.csv" % (table['tableId'], table['name'])
+            uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
 
-        records_json = yga.database(table['tableId'], 'records')
-        if file_keep('%s_records.json' % table['tableId'], "database records: %s_records.json" % (table['tableId'],)) is False:
-            with open('%s_records.json' % table['tableId'], 'wb') as f:
-                json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            if file_keep(sanitise_file_name(name), "database: %s" % (sanitise_file_name(name),)) is False:
+                with open(sanitise_file_name(name), 'wb') as f:
+                    yga.download_file(uri, f)
+                set_mtime(sanitise_file_name(name), table['dateLastModified'])
+
+            records_json = yga.database(table['tableId'], 'records')
+            if file_keep('%s_records.json' % table['tableId'], "database records: %s_records.json" % (table['tableId'],)) is False:
+                with open('%s_records.json' % table['tableId'], 'wb') as f:
+                    json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+                set_mtime('%s_records.json' % table['tableId'], table['dateLastModified'])
+        except Exception:
+            logger.exception("Failed to get table '%s' (%d/%d)", table['name'], n, nts)
+            continue
 
 
 def archive_links(yga, subdir=''):
@@ -710,15 +730,21 @@ def archive_polls(yga):
     totalPolls = len(pollsList)
     logger.info("Found %d polls to grab", totalPolls)
 
-    n = 1
+    n = 0
     for p in pollsList:
-        logger.info("Downloading poll %d [%d/%d]", p['surveyId'], n, totalPolls)
-        pollInfo = yga.polls(p['surveyId'])
-        fname = '%s-%s.json' % (n, p['surveyId'])
-
-        with open(fname, 'wb') as f:
-            json.dump(pollInfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
         n += 1
+        try:
+            logger.info("Downloading poll %d [%d/%d]", p['surveyId'], n, totalPolls)
+            pollInfo = yga.polls(p['surveyId'])
+            fname = '%s-%s.json' % (n, p['surveyId'])
+
+            with open(fname, 'wb') as f:
+                json.dump(pollInfo, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+            set_mtime(fname, pollInfo['dateCreated'])
+        except Exception:
+            logger.exception("Failed to get poll %d [%d/%d]", p['surveyId'], n, totalPolls)
+            continue
+
 
 
 def archive_members(yga):
@@ -745,6 +771,13 @@ def archive_members(yga):
 ####
 # Utility Functions
 ####
+
+def set_mtime(path, mtime):
+    """
+    Sets the last-modified date of a file or directory
+    """
+    atime = time.time()
+    os.utime(path, (atime, mtime))
 
 
 def sanitise_file_name(value):
@@ -778,6 +811,7 @@ def file_keep(fname, type = ""):
     
     logger.debug("File already present %s", type)
     return True
+
 
 class Mkchdir:
     d = ""

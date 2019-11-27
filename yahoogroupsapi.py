@@ -33,9 +33,11 @@ class Unrecoverable(YGAException):
     """An error that can not be resolved by retrying the request."""
     pass
 
+
 class BadSize(YGAException):
     """The filesize is between 60 and 68 bytes, which could be in error"""
     pass
+
 
 class AuthenticationError(Unrecoverable):
     pass
