@@ -968,7 +968,7 @@ if __name__ == "__main__":
             args.polls = args.attachments = args.members = args.topics = args.raw = True
 
     with Mkchdir(args.group, sanitize=False):
-        log_file_handler = logging.FileHandler('archive.log','w','utf-8')
+        log_file_handler = logging.FileHandler('archive.log', 'a', 'utf-8')
         log_file_handler.setFormatter(log_formatter)
         root_logger.addHandler(log_file_handler)
 
