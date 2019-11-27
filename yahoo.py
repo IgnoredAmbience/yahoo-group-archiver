@@ -925,7 +925,8 @@ if __name__ == "__main__":
                     help='Output WARC file of raw network requests. [Requires warcio package installed]')
 
     p.add_argument('-v', '--verbose', action='store_true')
-    p.add_argument('--colour', '--color', action='store_true', help='Colour log output to terminal')
+    p.add_argument('--colour', '--color', action='store_true',
+                   help='Colour log output to terminal [Requires coloredlogs package installed]')
     p.add_argument('--delay', type=float, default=0.2, help='Minimum delay between requests (default 0.2s)')
 
     p.add_argument('group', type=str)
@@ -944,8 +945,7 @@ if __name__ == "__main__":
         try:
             import coloredlogs
         except ImportError as e:
-            print("Coloured logging output requires the 'coloredlogs' package to be installed.")
-            raise e
+            sys.exit("Error: Coloured logging output requires the 'coloredlogs' package to be installed.")
         coloredlogs.install(level=log_level, **log_format)
     else:
         log_stdout_handler = logging.StreamHandler(sys.stdout)
