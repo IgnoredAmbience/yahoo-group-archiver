@@ -290,7 +290,7 @@ project = Project(
 
 pipeline = Pipeline(
     CheckIP(),
-    GetItemFromTracker('http://%s/%s' % (TRACKER_HOST, TRACKER_ID), downloader, VERSION),
+    GetItemFromTracker('http://%s/%s' % (TRACKER_HOST, TRACKER_ID), downloader, VERSION),  # noqa: F821
     PrepareDirectories(warc_prefix='yg-api'),
     YgaDownload(
         YgaArgs(),
@@ -305,7 +305,7 @@ pipeline = Pipeline(
     ),
     MoveFiles(),
     PrepareStatsForTracker(
-        defaults={'downloader': downloader, 'version': VERSION},
+        defaults={'downloader': downloader, 'version': VERSION},    # noqa: F821
         file_groups={
             'data': [
                 ItemInterpolation('%(data_dir)s/%(warc_file_base)s.warc.gz')  #TODO ?
@@ -317,7 +317,7 @@ pipeline = Pipeline(
                                       name='shared:rsync_threads', title='Rsync threads',
                                      description='The maximum number of concurrent uploads.'),
                     UploadWithTracker('http://%s/%s' % (TRACKER_HOST, TRACKER_ID),
-                                      downloader=downloader,
+                                      downloader=downloader,        # noqa: F821
                                       version=VERSION,
                                       files=ItemValue('files'),
                                       rsync_target_source_path=ItemInterpolation('%(data_dir)s/'),
