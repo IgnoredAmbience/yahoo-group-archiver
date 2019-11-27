@@ -121,10 +121,10 @@ def test_one_retry(yahoo_response):
     assert json == result
 
 
-def test_ten_retries(yahoo_response):
+def test_fifteen_retries(yahoo_response):
     r = yahoo_response('v1/groups/groupname/', ygError={}, status=500)
     yga = YahooGroupsAPI('groupname')
     with raises(yahoogroupsapi.Recoverable):
         yga.HackGroupInfo()
 
-    assert len(r.calls) == 10
+    assert len(r.calls) == 15
