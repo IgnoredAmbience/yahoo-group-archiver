@@ -34,8 +34,10 @@ In Google Chrome these steps are required:
 2. Click the 🔒 padlock, or ⓘ (cicled letter i) in the address bar to the left of the website address.
 3. Click "Cookies".
 4. On the Allowed tab select "Yahoo.com" followed by "Cookies" in the tree listing.
-5. Select the T cookie and copy the Content field in place of `<T_cookie>` in the above command line.
-6. Select the Y cookie and copy the Content field in place of `<Y_cookie>` in the above command line.
+5. Select the T cookie, right click the value in the _Content_ field and _Select All_. Then copy the value and paste in
+   place of the `<T_cookie>` in the above command line.
+6. Select the Y cookie, right click the value in the _Content_ field and _Select All_. Then copy the value and paste in
+   place of the `<Y_cookie>` in the above command line.
 
 In Firefox:
 1. Go to [Yahoo Groups](https://groups.yahoo.com/neo) (make sure you're signed in with your account).
