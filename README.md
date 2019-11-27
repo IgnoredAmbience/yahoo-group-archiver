@@ -53,10 +53,10 @@ Files will be placed into the directory structure groupname/{email,files,photos,
 ## Command Line Options
 ```
 usage: yahoo.py [-h] [-ct COOKIE_T] [-cy COOKIE_Y] [-ce COOKIE_E]
-                [-cf COOKIE_FILE] [-e] [-at] [-f] [-i] [-d] [-l] [-c] [-p]
-                [-a] [-m] [--user-agent USER_AGENT] [--start START]
-                [--stop STOP] [--ids IDS [IDS ...]] [-w] [-v] [--colour]
-                [--delay DELAY]
+                [-cf COOKIE_FILE] [-e] [-at] [-f] [-i] [-t] [-r] [-d] [-l]
+                [-c] [-p] [-a] [-m] [-o] [--user-agent USER_AGENT]
+                [--start START] [--stop STOP] [--ids IDS [IDS ...]] [-w] [-v]
+                [--colour] [--delay DELAY]
                 group
 
 positional arguments:
@@ -83,16 +83,23 @@ Authentication Options:
 What to archive:
   By default, all the below.
 
-  -e, --email           Only archive email and attachments (from email)
+  -e, --email           Only archive html and raw email and attachments (from
+                        email) through the messages API
   -at, --attachments    Only archive attachments (from attachments list)
   -f, --files           Only archive files
   -i, --photos          Only archive photo galleries
+  -t, --topics          Only archive HTML email and attachments through the
+                        topics API
+  -r, --raw             Only archive raw email without attachments through the
+                        messages API
   -d, --database        Only archive database
   -l, --links           Only archive links
   -c, --calendar        Only archive events
   -p, --polls           Only archive polls
   -a, --about           Only archive general info about the group
   -m, --members         Only archive members
+  -o, --overwrite       Overwrite existing files such as email and database
+                        records
 
 Request Options:
   --user-agent USER_AGENT

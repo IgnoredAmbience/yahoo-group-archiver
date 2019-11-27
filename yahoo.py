@@ -36,8 +36,9 @@ else:
 # WARC metadata params
 
 WARC_META_PARAMS = OrderedDict([('software', 'yahoo-group-archiver'),
-                                ('version', '20191025-1'),
+                                ('version','20191123.00'),
                                 ('format', 'WARC File Format 1.0'),
+                                ('command-arguments', ' '.join(sys.argv))
                                 ])
 
 
@@ -92,35 +93,40 @@ def archive_messages_metadata(yga):
     return message_ids
 
 
-def archive_message_content(yga, id, status=""):
+def archive_message_content(yga, id, status="", skipHTML=False, skipRaw=False):
     logger = logging.getLogger('archive_message_content')
-    try:
-        logger.info("Fetching  raw message id: %d %s", id, status)
-        raw_json = yga.messages(id, 'raw')
+
+    if skipRaw is False:
         fname = "%s_raw.json" % (id,)
-        with open(fname, 'wb') as f:
-            json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-        set_mtime(fname, int(raw_json['postDate']))
-    except Exception:
-        logger.exception("Raw grab failed for message %d", id)
+        if file_keep(fname, " raw message id: %s" % (id,)) is False:
+            try:
+                logger.info("Fetching  raw message id: %d %s", id, status)
+                raw_json = yga.messages(id, 'raw')
+                with open(fname, 'wb') as f:
+                    json.dump(raw_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+                set_mtime(fname, int(raw_json['postDate']))
+            except Exception:
+                logger.exception("Raw grab failed for message %d", id)
 
-    try:
-        logger.info("Fetching html message id: %d %s", id, status)
-        html_json = yga.messages(id)
+    if skipHTML is False:
         fname = "%s.json" % (id,)
-        with open(fname, 'wb') as f:
-            json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-        set_mtime(fname, int(html_json['postDate']))
+        if file_keep(fname, " raw message id: %s" % (id,)) is False:
+            try:
+                logger.info("Fetching html message id: %d %s", id, status)
+                html_json = yga.messages(id)
+                with open(fname, 'wb') as f:
+                    json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+                set_mtime(fname, int(html_json['postDate']))
 
-        if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
-            with Mkchdir("%d_attachments" % id):
-                process_single_attachment(yga, html_json['attachmentsInfo'])
-            set_mtime(sanitise_folder_name("%d_attachments" % id), int(html_json['postDate']))
-    except Exception:
-        logger.exception("HTML grab failed for message %d", id)
+                if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
+                    with Mkchdir("%d_attachments" % id):
+                        process_single_attachment(yga, html_json['attachmentsInfo'])
+                    set_mtime(sanitise_folder_name("%d_attachments" % id), int(html_json['postDate']))
+            except Exception:
+                logger.exception("HTML grab failed for message %d", id)
 
 
-def archive_email(yga, message_subset=None, start=None, stop=None):
+def archive_email(yga, message_subset=None, start=None, stop=None, skipHTML=False, skipRaw=False):
     logger = logging.getLogger('archive_email')
     try:
         # Grab messages for initial counts and permissions check
@@ -155,56 +161,275 @@ def archive_email(yga, message_subset=None, start=None, stop=None):
         status = "(%d of %d)" % (n, len(message_subset))
         n += 1
         try:
-            archive_message_content(yga, id, status)
+            archive_message_content(yga, id, status, skipHTML, skipRaw)
         except Exception:
             logger.exception("Failed to get message id: %d", id)
             continue
 
 
+def archive_topics(yga):
+    logger = logging.getLogger('archive_topics')
+
+	# Grab messages for initial counts and permissions check
+    logger.info("Initializing messages.")
+    try:
+        init_messages = yga.messages()
+    except yahoogroupsapi.AuthenticationError:
+        logger.error("Couldn't access Messages functionality for this group")
+        return
+
+    expectedTopics = init_messages['numTopics']
+    
+    logger.info("Getting message metadata.")
+    message_subset = archive_messages_metadata(yga)
+    if len(message_subset) == 0:
+        logger.error("ERROR: no messages available.")
+        return
+    
+	# Occasionally messages reported in the metadata aren't actually available from Yahoo.
+	# We also found a group where expectedTopics was 1 less than the actual number of topics available, but the script still downloaded everything.
+    logger.info("Expecting %d topics and %d messages.",expectedTopics,len(message_subset))
+    
+    unretrievableTopicIds = set()
+    unretrievableMessageIds = set()
+    retrievedTopicIds = set()
+    retrievedMessageIds = set()
+    potentialMessageIds = set(message_subset)
+    
+    # Continue trying to grab topics and messages until all potential messages are retrieved or found to be unretrievable.
+    while potentialMessageIds:
+        startingTopicId = find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds)
+        if startingTopicId is not None:
+            process_surrounding_topics(startingTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+    
+           
+    logger.info("Topic archiving complete.")
+    logger.info("There are %d retrieved topic(s).",len(retrievedTopicIds))
+    logger.info("There are %d retrieved message(s).",len(retrievedMessageIds))           
+    logger.info("There are %d unretrievable topic(s).",len(unretrievableTopicIds))
+    logger.info("There are %d unretrievable message(s).",len(unretrievableMessageIds))
+    
+    # Save the tracking sets.
+    with open("retrievedTopicIds.json", 'wb') as f:
+            json.dump(list(retrievedTopicIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    with open("retrievedMessageIds.json", 'wb') as f:
+            json.dump(list(retrievedMessageIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    with open("unretrievableTopicIds.json", 'wb') as f:
+            json.dump(list(unretrievableTopicIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+    with open("unretrievableMessageIds.json", 'wb') as f:
+            json.dump(list(unretrievableMessageIds), codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)           
+
+
+# Find a topic ID from among potentialMessageIds to start topic archiving with.
+# Also save messages from unretrievable topics when possible.
+def find_topic_id(unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds):
+    logger = logging.getLogger('find_topic_id')
+    
+    # Keep looking as long as the set of potential message IDs is not emty.
+    while potentialMessageIds:
+        # Check an arbitrary message.
+        msgId = potentialMessageIds.pop()
+        logger.info("Checking message ID %d to find topic.",msgId)
+        try:
+            html_json = yga.messages(msgId)
+            topicId = html_json.get("topicId")
+            logger.info("The message is part of topic ID %d", topicId)
+            
+            writeMessage = False
+            
+            # We've already retrieved this topic. This could indicate a bug, or maybe messages have been added since it was downloaded.
+            # We'll want to save the individual message.
+            if topicId in retrievedTopicIds:
+                logger.error("ERROR: This topic has already been archived.")
+                writeMessage = True
+            
+            # We've previously tried getting this topic, and it's no good.
+            # Since this is the only way to get the message, go ahead and save it.
+            elif topicId in unretrievableTopicIds:
+                logger.info("This topic is known to be unretrievable. Saving individual message.")
+                writeMessage = True
+                
+            
+            # If we got a message despite some issue with the topic, go ahead and save it.
+            # Sometimes Yahoo will give you a message in an unretrievable topic through the messages API.
+            if writeMessage:                
+                retrievedMessageIds.add(msgId)
+                with Mkchdir('email'):
+                    if file_keep("%s.json" % (msgId,), "html message id: %d" % (msgId,)) is False:
+                        with open("%s.json" % (msgId,), 'wb') as f:
+                            json.dump(html_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+
+                    if 'attachmentsInfo' in html_json and len(html_json['attachmentsInfo']) > 0:
+                        with Mkchdir("%d_attachments" % msgId):
+                            process_single_attachment(yga, html_json['attachmentsInfo'])
+                logger.info("%d total messages downloaded.",len(retrievedMessageIds))
+                continue # Keep trying to find a topic ID.
+            
+            
+            # We found a valid topic. Put msgId back in potentialMessageIds since it should be archived with the topic.
+            else:
+                potentialMessageIds.add(msgId)
+                return topicId
+            
+        except:
+            logger.exception("HTML grab failed for message %d", msgId)
+            unretrievableMessageIds.add(msgId)
+    
+    # Ran out of messages to check.        
+    return None
+    
+    
+def process_surrounding_topics(startingTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics):
+    logger = logging.getLogger(name="process_surrounding_topics")
+    topicResults = process_single_topic(startingTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+    if topicResults["gotTopic"] is False:
+        return
+        
+    nextTopicId = topicResults["nextTopicId"]
+    prevTopicId = topicResults["prevTopicId"]
+    if nextTopicId > 0:
+        logger.info("The next topic ID is %d.",nextTopicId)
+    else:
+        logger.info("There are no later topics.")
+
+    if prevTopicId > 0:
+        logger.info("The previous topic ID is %d.",prevTopicId)
+    else:
+        logger.info("There are no previous topics.")
+        
+        
+    # Grab all previous topics from the starting topic back.
+    logger.info("Retrieving previous topics.")
+    while prevTopicId > 0:
+        if prevTopicId in unretrievableTopicIds:
+            logger.info("Reached known unretrievable topic ID %d",prevTopicId)
+            break
+        topicResults = process_single_topic(prevTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+        prevTopicId = topicResults["prevTopicId"]
+        
+    # Grab all later topics from the starting topic forward.
+    logger.info("Retrieving later topics.")
+    while nextTopicId > 0:
+        if nextTopicId in unretrievableTopicIds:
+            logger.info("Reached known unretrievable topic ID %d",nextTopicId)
+            break
+        topicResults = process_single_topic(nextTopicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics)
+        nextTopicId = topicResults["nextTopicId"]
+
+ 
+def process_single_topic(topicId,unretrievableTopicIds,unretrievableMessageIds,retrievedTopicIds,retrievedMessageIds,potentialMessageIds,expectedTopics):
+    logger = logging.getLogger(name="process_single_topic")
+    topicResults = {
+        "gotTopic": False,
+        "nextTopicId": 0,
+        "prevTopicId": 0
+    }
+    
+    # Grab the topic.
+    topic_json = None
+    gotTopic = False
+    
+    # We already have the topic on disk and don't want to overwrite it.
+    if file_keep("%s.json" % (topicId,), "topic id: %d" % (topicId,)):
+        # However, we need the previous and next topic, so we have to load the json.
+        try:
+            with open('%s.json' % (topicId,), 'r', encoding='utf-8') as f:
+                topic_json = json.load(f)
+            gotTopic = True
+        except:
+            logger.exception("ERROR: couldn't load %s.json from disk.",topicId)
+    
+    # We didn't load the topic from disk, so we need to try downloading it.
+    if gotTopic is False:
+        try:
+            logger.info("Fetching topic ID %d", topicId)
+            topic_json = yga.topics(topicId,maxResults=999999)
+            gotTopic = True
+            # Save it now.
+            with open("%s.json" % (topicId,), 'wb') as f:
+                json.dump(topic_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+        except:
+            logger.exception("ERROR downloading topic ID %d", topicId)
+    
+    # We couldn't get the topic. Categorize it as unretrievable and return.
+    if gotTopic is False:
+        unretrievableTopicIds.add(topicId)
+        return topicResults
+    
+    # We have the topic.
+    retrievedTopicIds.add(topicId)
+    topicResults["gotTopic"] = True
+    topicResults["nextTopicId"] = topic_json.get("nextTopicId")
+    topicResults["prevTopicId"] = topic_json.get("prevTopicId")
+
+    # Figure out what messages we got and download attachments.
+    messages = topic_json.get("messages")
+    for message in messages:
+        # Track what messages we've gotten.
+        msgId = message.get("msgId")
+        retrievedMessageIds.add(msgId)
+        unretrievableMessageIds.discard(msgId) # probably not in there, but possible if we got an intermittent timeout
+        try:
+            potentialMessageIds.remove(msgId)
+        # Intermittent timeouts can cause this.
+        except:
+            logger.exception("ERROR: Tried to remove msgId %d from potentialMessageIds when it wasn't there.",msgId)
+                            
+        # Download messsage attachments if there are any.
+        if 'attachmentsInfo' in message and len(message['attachmentsInfo']) > 0:
+            with Mkchdir("%d_attachments" % msgId):
+                process_single_attachment(yga, message['attachmentsInfo'])
+        
+    logger.info("Fetched topic ID %d with message count %d (topic %d of %d). %d total messages downloaded.",topicId,topic_json.get("totalMsgInTopic"),len(retrievedTopicIds),expectedTopics,len(retrievedMessageIds))   
+    return topicResults
+
+
 def process_single_attachment(yga, attach):
     logger = logging.getLogger(name="process_single_attachment")
     for frec in attach:
-        logger.info("Fetching attachment '%s'", frec['filename'])
-        fname = "%s-%s" % (frec['fileId'], frec['filename'])
-        ffname = sanitise_file_name(fname)
-        with open(ffname, 'wb') as f:
-            if 'link' in frec:
-                # try and download the attachment
-                # (sometimes yahoo doesn't keep them)
-                ok = True
-                try:
-                    yga.download_file(frec['link'], f=f)
-                except requests.exceptions.HTTPError as err:
-                    logger.error("ERROR downloading attachment '%s': %s", frec['link'], err)
+        fname = sanitise_file_name("%s-%s" % (frec['fileId'], frec['filename']))
 
-            elif 'photoInfo' in frec:
-                # keep retrying until we find the largest image size we can download
-                # (sometimes yahoo doesn't keep the originals)
-                exclude = []
-                ok = False
-                while not ok:
-                    # find best photoinfo (largest size)
-                    photoinfo = get_best_photoinfo(frec['photoInfo'], exclude)
-
-                    if photoinfo is None:
-                        logger.error("Can't find a viable copy of this photo")
-                        break
-
-                    # try and download it
+        if file_keep(fname, "file: %s" % (fname,)) is False:
+            with open(fname, 'wb') as f:
+                logger.info("Fetching attachment '%s'", frec['filename'])
+                if 'link' in frec:
+                    # try and download the attachment
+                    # (sometimes yahoo doesn't keep them)
                     try:
-                        yga.download_file(photoinfo['displayURL'], f=f)
-                        ok = True
+                        yga.download_file(frec['link'], f=f)
                     except requests.exceptions.HTTPError as err:
-                        # yahoo says no. exclude this size and try for another.
-                        logger.error("ERROR downloading '%s' variant %s: %s", photoinfo['displayURL'],
-                                     photoinfo['photoType'], err)
-                        # exclude.append(photoinfo['photoType'])
+                        logger.error("ERROR downloading attachment '%s': %s", frec['link'], err)
+                    continue
 
-            # if we failed, try the next attachment
-            if not ok:
-                continue
-        set_mtime(ffname, frec['modificationDate'])
+                elif 'photoInfo' in frec:
+                    process_single_photo(frec['photoInfo'],f)
 
+            set_mtime(fname, frec['modificationDate'])
+
+
+def process_single_photo(photoinfo,f):
+    logger = logging.getLogger(name="process_single_photo")
+    # keep retrying until we find the largest image size we can download
+    # (sometimes yahoo doesn't keep the originals)
+    exclude = []
+    ok = False
+    while not ok:
+        # find best photoinfo (largest size)
+        bestPhotoinfo = get_best_photoinfo(photoinfo, exclude)
+
+        if bestPhotoinfo is None:
+            logger.error("Can't find a viable copy of this photo")
+            break
+
+        # try and download it
+        try:
+            yga.download_file(bestPhotoinfo['displayURL'], f=f)
+            ok = True
+        except requests.exceptions.HTTPError as err:
+            # yahoo says no. exclude this size and try for another.
+            logger.error("ERROR downloading '%s' variant %s: %s", bestPhotoinfo['displayURL'],
+                         bestPhotoinfo['photoType'], err)
+            exclude.append(bestPhotoinfo['photoType'])
 
 def archive_files(yga, subdir=None):
     logger = logging.getLogger(name="archive_files")
@@ -228,10 +453,11 @@ def archive_files(yga, subdir=None):
             # Regular file
             name = html_unescape(path['fileName'])
             new_name = sanitise_file_name("%d_%s" % (n, name))
-            logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
-            with open(new_name, 'wb') as f:
-                yga.download_file(path['downloadURL'], f)
-            set_mtime(new_name, path['createdTime'])
+            if file_keep(new_name, ": %s" % (new_name,)) is False:
+                logger.info("Fetching file '%s' as '%s' (%d/%d)", name, new_name, n, sz)
+                with open(new_name, 'wb') as f:
+                    yga.download_file(path['downloadURL'], f)
+                set_mtime(new_name, path['createdTime'])
 
         elif path['type'] == 1:
             # Directory
@@ -247,7 +473,7 @@ def archive_files(yga, subdir=None):
 def archive_attachments(yga):
     logger = logging.getLogger(name="archive_attachments")
     try:
-        attachments_json = yga.attachments()
+        attachments_json = yga.attachments(count=999999)
     except Exception:
         logger.error("Couldn't access Attachments functionality for this group")
         return
@@ -304,17 +530,13 @@ def archive_photos(yga):
                 for photo in photos['photos']:
                     p += 1
                     pname = html_unescape(photo['photoName'])
-                    logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
+                    fname = sanitise_file_name("%d-%s.jpg" % (photo['photoId'], pname))
+                    if file_keep(fname, "photo: %s" % (fname,)) is False:
+                        logger.info("Fetching photo '%s' (%d/%d)", pname, p, photos['total'])
+                        with open(fname, 'wb') as f:
+                            process_single_photo(photo['photoInfo'],f)
+                        set_mtime(fname, photo['creationDate'])
 
-                    photoinfo = get_best_photoinfo(photo['photoInfo'])
-                    fname = "%d-%s.jpg" % (photo['photoId'], pname)
-                    ffname = sanitise_file_name(fname)
-                    with open(ffname, 'wb') as f:
-                        try:
-                            yga.download_file(photoinfo['displayURL'], f)
-                        except requests.exceptions.HTTPError:
-                            logger.error("HTTP error, unable to download, out of retries")
-                    set_mtime(ffname, photo['creationDate'])
         set_mtime(sanitise_folder_name(folder), a['modificationDate'])
 
 
@@ -341,14 +563,16 @@ def archive_db(yga):
             name = "%s_%s.csv" % (table['tableId'], table['name'])
             uri = "https://groups.yahoo.com/neo/groups/%s/database/%s/records/export?format=csv" % (yga.group, table['tableId'])
 
-            with open(sanitise_file_name(name), 'wb') as f:
-                yga.download_file(uri, f)
-            set_mtime(sanitise_file_name(name), table['dateLastModified'])
+            if file_keep(sanitise_file_name(name), "database: %s" % (sanitise_file_name(name),)) is False:
+                with open(sanitise_file_name(name), 'wb') as f:
+                    yga.download_file(uri, f)
+                set_mtime(sanitise_file_name(name), table['dateLastModified'])
 
             records_json = yga.database(table['tableId'], 'records')
-            with open('%s_records.json' % table['tableId'], 'wb') as f:
-                json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
-            set_mtime('%s_records.json' % table['tableId'], table['dateLastModified'])
+            if file_keep('%s_records.json' % table['tableId'], "database records: %s_records.json" % (table['tableId'],)) is False:
+                with open('%s_records.json' % table['tableId'], 'wb') as f:
+                    json.dump(records_json, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
+                set_mtime('%s_records.json' % table['tableId'], table['dateLastModified'])
         except Exception:
             logger.exception("Failed to get table '%s' (%d/%d)", table['name'], n, nts)
             continue
@@ -387,16 +611,21 @@ def archive_calendar(yga):
     entityId = groupinfo['entityId']
 
     api_root = "https://calendar.yahoo.com/ws/v3"
-
+    
     # We get the wssid
     tmpUri = "%s/users/%s/calendars/events/?format=json&dtstart=20000101dtend=20000201&wssid=Dummy" % (api_root, entityId)
+    logger.info("Getting wssid. Expecting 401 or 403 response.")
     try:
         yga.download_file(tmpUri)  # We expect a 403 or 401  here
         logger.error("Attempt to get wssid returned HTTP 200, which is unexpected!")  # we should never hit this
         return
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 403 or e.response.status_code == 401:
-            tmpJson = json.loads(e.response.content)['calendarError']
+            try:
+                tmpJson = json.loads(e.response.text)['calendarError']
+            except:
+                logger.exception("ERROR: Couldn't load wssid exception to get calendarError.")
+                return
         else:
             logger.error("Attempt to get wssid returned an unexpected response status %d" % e.response.status_code)
             return
@@ -405,7 +634,7 @@ def archive_calendar(yga):
         logger.error("Couldn't download calendar/events: missing wssid")
         return
     wssid = tmpJson['wssid']
-
+    
     # Getting everything since the launch of Yahoo! Groups (January 30, 2001)
     archiveDate = datetime.datetime(2001, 1, 30)
     endDate = datetime.datetime(2025, 1, 1)
@@ -445,36 +674,23 @@ def archive_about(yga):
 
         json.dump(statistics, codecs.getwriter('utf-8')(f), ensure_ascii=False, indent=4)
 
+    exclude = []
     # Check if we really have a photo in the group description
     if ('photoInfo' in statistics['groupHomePage'] and statistics['groupHomePage']['photoInfo']):
-        exclude = []
-
-        # find best photoinfo (largest size)
-        photoinfo = get_best_photoinfo(statistics['groupHomePage']['photoInfo'], exclude)
-
-        if photoinfo is not None:
-            fname = 'GroupPhoto-%s' % basename(photoinfo['displayURL']).split('?')[0]
-            logger.info("Downloading the photo in group description as %s", fname)
-            try:
-                with open(sanitise_file_name(fname), 'wb') as f:
-                    yga.download_file(photoinfo['displayURL'], f)
-            except yahoogroupsapi.YGAException:
-                logger.error("Unrecoverable error getting group description photo at URL %s", photoinfo['displayURL'])
+        # Base filename on largest photo size.
+        bestphotoinfo = get_best_photoinfo(statistics['groupHomePage']['photoInfo'], exclude)
+        fname = 'GroupPhoto-%s' % basename(bestphotoinfo['displayURL']).split('?')[0]
+        logger.info("Downloading the photo in group description as %s", fname)
+        with open(sanitise_file_name(fname), 'wb') as f:
+            process_single_photo(statistics['groupHomePage']['photoInfo'],f)
 
     if statistics['groupCoverPhoto']['hasCoverImage']:
-        exclude = []
-
-        # find best photoinfo (largest size)
-        photoinfo = get_best_photoinfo(statistics['groupCoverPhoto']['photoInfo'], exclude)
-
-        if photoinfo is not None:
-            fname = 'GroupCover-%s' % basename(photoinfo['displayURL']).split('?')[0]
-            logger.info("Downloading the group cover as %s", fname)
-            try:
-                with open(sanitise_file_name(fname), 'wb') as f:
-                    yga.download_file(photoinfo['displayURL'], f)
-            except yahoogroupsapi.YGAException:
-                logger.error("Unrecoverable error getting group cover photo at URL %s", photoinfo['displayURL'])
+        # Base filename on largest photo size.
+        bestphotoinfo = get_best_photoinfo(statistics['groupCoverPhoto']['photoInfo'], exclude)
+        fname = 'GroupCover-%s' % basename(bestphotoinfo['displayURL']).split('?')[0]
+        logger.info("Downloading the group cover as %s", fname)
+        with open(sanitise_file_name(fname), 'wb') as f:
+            process_single_photo(statistics['groupCoverPhoto']['photoInfo'],f)
 
 
 def archive_polls(yga):
@@ -563,6 +779,7 @@ def set_mtime(path, mtime):
     atime = time.time()
     os.utime(path, (atime, mtime))
 
+
 def sanitise_file_name(value):
     """
     Convert spaces to hyphens.  Remove characters that aren't alphanumerics, underscores, periods or hyphens.
@@ -576,6 +793,24 @@ def sanitise_file_name(value):
 
 def sanitise_folder_name(name):
     return sanitise_file_name(name).replace('.', '_')
+
+
+def file_keep(fname, type = ""):
+    """
+    Test existance of given file name and global overwrite flag.
+    If not overwriting and present then log the fact and the data type (type).
+    Returns True if file present otherwise False
+    """
+    logger = logging.getLogger('file_keep')
+
+    if args.overwrite:
+        return False
+    
+    if os.path.exists(fname) is False:
+        return False
+    
+    logger.debug("File already present %s", type)
+    return True
 
 
 class Mkchdir:
@@ -637,13 +872,17 @@ if __name__ == "__main__":
 
     po = p.add_argument_group(title='What to archive', description='By default, all the below.')
     po.add_argument('-e', '--email', action='store_true',
-                    help='Only archive email and attachments (from email)')
+                    help='Only archive html and raw email and attachments (from email) through the messages API')
     po.add_argument('-at', '--attachments', action='store_true',
                     help='Only archive attachments (from attachments list)')
     po.add_argument('-f', '--files', action='store_true',
                     help='Only archive files')
     po.add_argument('-i', '--photos', action='store_true',
                     help='Only archive photo galleries')
+    po.add_argument('-t', '--topics', action='store_true',
+                    help='Only archive HTML email and attachments through the topics API')
+    po.add_argument('-r', '--raw', action='store_true',
+                    help='Only archive raw email without attachments through the messages API')
     po.add_argument('-d', '--database', action='store_true',
                     help='Only archive database')
     po.add_argument('-l', '--links', action='store_true',
@@ -656,6 +895,9 @@ if __name__ == "__main__":
                     help='Only archive general info about the group')
     po.add_argument('-m', '--members', action='store_true',
                     help='Only archive members')
+    po.add_argument('-o', '--overwrite', action='store_true',
+                    help='Overwrite existing files such as email and database records')
+
 
     pr = p.add_argument_group(title='Request Options')
     pr.add_argument('--user-agent', type=str,
@@ -715,13 +957,15 @@ if __name__ == "__main__":
 
     yga = YahooGroupsAPI(args.group, cookie_jar, headers, min_delay=args.delay)
 
+    # Default to all unique content. This includes topics and raw email, 
+    # but not the full email download since that would duplicate html emails we get through topics.
     if not (args.email or args.files or args.photos or args.database or args.links or args.calendar or args.about or
-            args.polls or args.attachments or args.members):
-        args.email = args.files = args.photos = args.database = args.links = args.calendar = args.about = \
-            args.polls = args.attachments = args.members = True
+            args.polls or args.attachments or args.members or args.topics or args.raw):
+        args.files = args.photos = args.database = args.links = args.calendar = args.about = \
+            args.polls = args.attachments = args.members = args.topics = args.raw = True
 
     with Mkchdir(args.group, sanitize=False):
-        log_file_handler = logging.FileHandler('archive.log')
+        log_file_handler = logging.FileHandler('archive.log','w','utf-8')
         log_file_handler.setFormatter(log_formatter)
         root_logger.addHandler(log_file_handler)
 
@@ -746,15 +990,18 @@ if __name__ == "__main__":
         if args.photos:
             with Mkchdir('photos'):
                 archive_photos(yga)
+        if args.topics:
+            with Mkchdir('topics'):
+                archive_topics(yga)
+        if args.raw:
+            with Mkchdir('email'):
+                archive_email(yga, message_subset=args.ids, start=args.start, stop=args.stop,skipHTML=True)
         if args.database:
             with Mkchdir('databases'):
                 archive_db(yga)
         if args.links:
             with Mkchdir('links'):
                 archive_links(yga)
-        if args.calendar:
-            with Mkchdir('calendar'):
-                archive_calendar(yga)
         if args.about:
             with Mkchdir('about'):
                 archive_about(yga)
@@ -767,6 +1014,9 @@ if __name__ == "__main__":
         if args.members:
             with Mkchdir('members'):
                 archive_members(yga)
+        if args.calendar:
+            with Mkchdir('calendar'):
+                archive_calendar(yga)
 
         if args.warc:
             fhwarc.close()
