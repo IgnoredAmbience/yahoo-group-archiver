@@ -126,6 +126,14 @@ Output Options:
                         warcio package installed]
 ```
 
+## Next steps
+
+This tool saves a complete archive of a Yahoo Group in Yahoo Groups API's custom JSON format. But this can be hard for people—and particularly non-technical people—to read.
+
+The [Yahoo Group Archive Tools](https://github.com/anirvan/yahoo-group-archive-tools) software takes the output of this archive, and convert it into [`mbox`](https://en.wikipedia.org/wiki/Mbox) format, as well as [individual email files](https://en.wikipedia.org/wiki/Email#Message_format). Mail folders stored as `mbox` can be imported by a wide range of desktop and server-side email clients, including [Thunderbird](https://addons.thunderbird.net/en-US/thunderbird/addon/importexporttools-ng/) (Linux, Mac, Windows), [Apple Mail.app](https://support.apple.com/guide/mail/import-or-export-mailboxes-mlhlp1030/mac) (Mac), [Microsoft Outlook](https://duckduckgo.com/?q=outlook+mbox+import&ia=web) (Windows and Mac); in some cases, users will need to use an external utility. Once a list is imported into one of these clients, it may be possible to export the list content into other formats, like printing to PDF.
+
+We're not responsible for third party software like Yahoo Group Archive Tools, so to be safe, please retain the original output of this tool.
+
 ## Alternatives to this tool
 ### Yahoo Get My Data
 Yahoo have a ["Get My Data" tool](https://groups.yahoo.com/neo/getmydata) for downloading content of groups of which you
